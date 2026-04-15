@@ -15,7 +15,7 @@ class IsaacMoveItBridge(Node):
             self.execute_callback
         )
         self.joint_pub = self.create_publisher(
-            JointState, '/joint_command', 10
+            JointState, '/joint_target', 10
         )
         self.get_logger().info('Isaac MoveIt2 Bridge 시작!')
 
