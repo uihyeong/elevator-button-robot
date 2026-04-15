@@ -4,7 +4,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from sensor_msgs.msg import Image, CameraInfo, JointState
 from geometry_msgs.msg import PointStamped, PoseStamped
-from std_msgs.msg import String
+from std_msgs.msg import String, Int32
 from cv_bridge import CvBridge
 from ultralytics import YOLO
 from moveit_msgs.action import MoveGroup
@@ -27,9 +27,11 @@ class IsaacSimYoloMoveIt(Node):
         self.depth_image = None
         self.current_joint_state = None
         self.button_pressed = False
-        self.target_button = 'up_button'
-        self.ready = False  # home 도착 후 5초 뒤에 인식 시작
+        self.target_button = None   # /target_floor 수신 전까지 대기
+        self.ready = False          # home 도착 후 5초 뒤에 인식 시작
         self.task_done = False
+        self.current_floor = -1     # 현재 층수 (초기값: 지하 1층)
+        self.target_floor = None    # 목표 층수
 
         self.HOME_JOINTS = [
             ('joint1',  0.0),
@@ -65,12 +67,32 @@ class IsaacSimYoloMoveIt(Node):
             CameraInfo, '/camera/color/camera_info', self.camera_info_callback, 10)
         self.joint_sub = self.create_subscription(
             JointState, '/joint_states', self.joint_state_callback, 10)
+        self.floor_sub = self.create_subscription(
+            Int32, '/target_floor', self.target_floor_callback, 10)
 
         self.get_logger().info('Isaac Sim YOLO MoveIt2 시작!')
-        self.get_logger().info(f'목표 버튼: {self.target_button}')
+        self.get_logger().info(f'현재 층수: {self.current_floor}층 | /target_floor 대기 중...')
 
         # 시작 시 home 포지션으로 이동
         self._home_timer = self.create_timer(2.0, self._move_to_home_once)
+
+    def target_floor_callback(self, msg):
+        floor = msg.data
+        if floor == self.current_floor:
+            self.get_logger().warn(f'목표 층수({floor})가 현재 층수와 같음. 무시.')
+            return
+
+        # 이미 같은 목표로 작업 중이면 무시
+        if floor == self.target_floor and (self.button_pressed or self.task_done):
+            return
+
+        self.target_floor = floor
+        self.target_button = 'up_button' if floor > self.current_floor else 'down_button'
+        self.button_pressed = False
+        self.task_done = False
+
+        self.get_logger().info(
+            f'목표 층수: {floor}층 | 현재: {self.current_floor}층 → {self.target_button} 누르기')
 
     def camera_info_callback(self, msg):
         self.fx = msg.k[0]
@@ -276,6 +298,8 @@ class IsaacSimYoloMoveIt(Node):
             self.get_logger().info('✅ 버튼 누르기 성공! 3초 후 복귀...')
             self.status_pub.publish(String(data='BUTTON_PRESSED'))
             self.task_done = True
+            if self.target_floor is not None:
+                self.current_floor = self.target_floor
             threading.Timer(3.0, self.return_to_init).start()
         else:
             self.get_logger().error(f'❌ 버튼 누르기 실패: error_code={code}')

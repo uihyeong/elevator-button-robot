@@ -123,10 +123,25 @@ bridge → /joint_target → PID 제어기 → /joint_command → Isaac Sim
 
 | 토픽 | 타입 | 설명 |
 |------|------|------|
-| `/target_floor` | `std_msgs/Int32` | 목표 층수 입력 |
+| `/target_floor` | `std_msgs/Int32` | 목표 층수 입력 (음수 = 지하) |
 | `/robot_status` | `std_msgs/String` | 현재 상태 (MOVING / BUTTON_PRESSED / SUCCESS / FAILED) |
 | `/joint_target` | `sensor_msgs/JointState` | PID 목표 관절 위치 |
 | `/joint_command` | `sensor_msgs/JointState` | Isaac Sim 관절 명령 |
+
+### 층수 입력 예시
+
+```bash
+# 3층으로 이동 (지하 1층 → 3층, up_button 자동 선택)
+ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
+
+# 지하 1층으로 복귀 (3층 → 지하 1층, down_button 자동 선택)
+ros2 topic pub --once /target_floor std_msgs/Int32 "{data: -1}"
+```
+
+층수에 따라 UP/DOWN 버튼이 자동 선택됩니다:
+- `target_floor > current_floor` → `up_button`
+- `target_floor < current_floor` → `down_button`
+- 초기 층수: 지하 1층 (`-1`)
 
 ## 개발 환경
 
