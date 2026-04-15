@@ -23,6 +23,10 @@
 - **PID 제어기** 로 관절 위치 피드백 제어
 - **Isaac Sim** 시뮬레이션으로 전체 흐름 검증
 
+## 데모
+
+> 실제 로봇 시연 영상 추가 예정
+
 ## 기술 스택
 
 | 분야 | 기술 |
@@ -142,6 +146,17 @@ ros2 topic pub --once /target_floor std_msgs/Int32 "{data: -1}"
 - `target_floor > current_floor` → `up_button`
 - `target_floor < current_floor` → `down_button`
 - 초기 층수: 지하 1층 (`-1`)
+
+## YOLO 학습 결과
+
+### 학습 그래프
+![학습 결과](yolo/results/results.png)
+
+### Confusion Matrix
+![Confusion Matrix](yolo/results/confusion_matrix_normalized.png)
+
+### 검증 예측
+![검증 결과](yolo/results/val_batch0_pred.jpg)
 
 ## 개발 환경
 
