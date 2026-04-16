@@ -61,8 +61,9 @@ PID 제어기로 관절 위치 추종
 ```
 elevator-button-robot/
 ├── nodes/
-│   ├── isaac_sim_yolo_moveit.py           # 메인 노드 (YOLO + MoveIt2 IK)
-│   ├── pid_joint_controller.py            # PID 관절 제어기 (50Hz)
+│   ├── real_robot_yolo_moveit.py          # 실제 로봇 메인 노드 (YOLO + MoveIt2 IK)
+│   ├── isaac_sim_yolo_moveit.py           # 시뮬레이션 메인 노드 (YOLO + MoveIt2 IK)
+│   ├── pid_joint_controller.py            # PID 관절 제어기 (50Hz, 시뮬레이션용)
 │   ├── isaac_sim_analytical_ik_moveit.py  # 해석적 IK 실험 노드
 │   ├── isaac_sim_yolo_depth.py            # 뎁스 인식 테스트
 │   ├── isaac_sim_yolo_tf.py               # TF 변환 테스트
@@ -73,6 +74,35 @@ elevator-button-robot/
     ├── weights/best.pt                    # 학습된 YOLO 모델
     └── dataset/                           # 학습 데이터셋
 ```
+
+## 실행 방법 (실제 로봇)
+
+```bash
+# 1. 하드웨어 컨트롤러 실행 (U2D2 연결 후)
+ros2 launch open_manipulator_x_bringup hardware.launch.py
+
+# 2. MoveIt2 실행
+ros2 launch open_manipulator_x_moveit_config moveit_core.launch.py
+
+# 3. D435 카메라 실행
+ros2 launch realsense2_camera rs_launch.py
+
+# 4. 카메라 TF 연결 (link5 기준)
+ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.01 --z 0.062 --roll 0.0 --pitch 0.0 --yaw 0.0 --frame-id link5 --child-frame-id camera_link
+
+# 5. 메인 노드 실행
+python3 nodes/real_robot_yolo_moveit.py
+```
+
+### 실제 로봇 주요 설정
+
+| 항목 | 값 | 설명 |
+|---|---|---|
+| 카메라 토픽 | `/camera/camera/color/image_raw` | 시뮬레이션과 네임스페이스 다름 |
+| 뎁스 인코딩 | `16UC1` → `/1000` | mm → m 변환 |
+| 카메라 TF | `link5 → camera_link` | x=0.12, y=0.01, z=0.062 |
+| 버튼 오프셋 | `X - 0.075m` | 버튼 표면 7.5cm 앞에서 멈춤 |
+| 베이스 프레임 | `world` | 시뮬레이션은 `open_manipulator_x` |
 
 ## 실행 방법 (시뮬레이션)
 
