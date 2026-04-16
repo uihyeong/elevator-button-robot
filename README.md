@@ -25,9 +25,10 @@
 
 ## 데모
 
-![데모1](media/demo1.gif)
-
-![데모2](media/demo2.gif)
+<p align="center">
+  <img src="media/demo1.gif" width="48%"/>
+  <img src="media/demo2.gif" width="48%"/>
+</p>
 
 ## 기술 스택
 
