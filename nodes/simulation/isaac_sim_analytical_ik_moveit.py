@@ -37,6 +37,10 @@ def analytical_ik(X, Y, Z):
     OpenMANIPULATOR-X 해석적 IK
     수평 접근(end_effector가 X축 방향으로 버튼을 향함) 가정
     반환: [j1, j2, j3, j4] (라디안) 또는 None
+
+    FK 규칙 (부호 주의):
+      link2 global angle = ALPHA - j2
+      link3 global angle = -(j2 + j3)
     """
     j1 = math.atan2(Y, X)
 
@@ -47,18 +51,20 @@ def analytical_ik(X, Y, Z):
     if D > L2 + L3:
         return None  # 도달 불가
 
-    cos_j3 = (D**2 - L2**2 - L3**2) / (2 * L2 * L3)
-    cos_j3 = max(-1.0, min(1.0, cos_j3))
-    j3 = -math.acos(cos_j3)  # elbow-up
+    cos_rel = (D**2 - L2**2 - L3**2) / (2 * L2 * L3)
+    cos_rel = max(-1.0, min(1.0, cos_rel))
+    rel = -math.acos(cos_rel)   # elbow-up (음수)
+
+    j3 = -rel - ALPHA           # = acos(cos_rel) - ALPHA
 
     phi = math.atan2(h, r)
-    psi = math.atan2(L3 * math.sin(-j3), L2 + L3 * math.cos(-j3))
-    j2 = phi - psi - ALPHA
+    psi = math.atan2(L3 * math.sin(rel), L2 + L3 * math.cos(rel))
+    j2  = ALPHA - (phi - psi)   # = ALPHA - phi + psi
 
-    j4 = -(j2 + j3)  # end_effector 수평 유지
+    j4 = -(j2 + j3)             # end_effector 수평 유지
 
     joints = [j1, j2, j3, j4]
-    for i, (j, (lo, hi)) in enumerate(zip(joints, JOINT_LIMITS)):
+    for j, (lo, hi) in zip(joints, JOINT_LIMITS):
         if not (lo <= j <= hi):
             return None
 

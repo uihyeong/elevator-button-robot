@@ -48,12 +48,13 @@ def analytical_ik(X, Y, Z):
     D  = math.sqrt(r**2 + h**2)
     if D > L2 + L3:
         return None
-    cos_j3 = (D**2 - L2**2 - L3**2) / (2 * L2 * L3)
-    cos_j3 = max(-1.0, min(1.0, cos_j3))
-    j3  = -math.acos(cos_j3)
+    cos_rel = (D**2 - L2**2 - L3**2) / (2 * L2 * L3)
+    cos_rel = max(-1.0, min(1.0, cos_rel))
+    rel = -math.acos(cos_rel)   # elbow-up (음수)
+    j3  = -rel - ALPHA
     phi = math.atan2(h, r)
-    psi = math.atan2(L3 * math.sin(-j3), L2 + L3 * math.cos(-j3))
-    j2  = phi - psi - ALPHA
+    psi = math.atan2(L3 * math.sin(rel), L2 + L3 * math.cos(rel))
+    j2  = ALPHA - (phi - psi)
     j4  = -(j2 + j3)
     joints = [j1, j2, j3, j4]
     for j, (lo, hi) in zip(joints, JOINT_LIMITS):
