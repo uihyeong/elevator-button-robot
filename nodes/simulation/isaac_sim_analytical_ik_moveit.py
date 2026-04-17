@@ -53,7 +53,7 @@ def analytical_ik(X, Y, Z):
 
     cos_rel = (D**2 - L2**2 - L3**2) / (2 * L2 * L3)
     cos_rel = max(-1.0, min(1.0, cos_rel))
-    rel = -math.acos(cos_rel)   # elbow-up (음수)
+    rel = math.acos(cos_rel)    # elbow-down: j2가 앞으로 이동 (자연스러운 동작)
 
     j3 = -rel - ALPHA           # = acos(cos_rel) - ALPHA
 
