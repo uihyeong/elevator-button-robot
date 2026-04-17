@@ -64,15 +64,18 @@ PID 제어기로 관절 위치 추종
 ```
 elevator-button-robot/
 ├── nodes/
-│   ├── real_robot_yolo_moveit.py          # 실제 로봇 메인 노드 (YOLO + MoveIt2 IK)
-│   ├── isaac_sim_yolo_moveit.py           # 시뮬레이션 메인 노드 (YOLO + MoveIt2 IK)
-│   ├── pid_joint_controller.py            # PID 관절 제어기 (50Hz, 시뮬레이션용)
-│   ├── isaac_sim_analytical_ik_moveit.py  # 해석적 IK 실험 노드
-│   ├── isaac_sim_yolo_depth.py            # 뎁스 인식 테스트
-│   ├── isaac_sim_yolo_tf.py               # TF 변환 테스트
-│   └── isaac_sim_yolo_test.py             # YOLO 인식 테스트
+│   ├── real_robot/                        # 실제 로봇용
+│   │   └── real_robot_yolo_moveit.py      # 메인 노드 (YOLO + MoveIt2 IK)
+│   └── simulation/                        # Isaac Sim 시뮬레이션용
+│       ├── isaac_sim_yolo_moveit.py        # 메인 노드 (YOLO + MoveIt2 IK)
+│       ├── pid_joint_controller.py         # PID 관절 제어기 (50Hz)
+│       ├── isaac_sim_analytical_ik_moveit.py  # 해석적 IK 실험 노드
+│       ├── isaac_sim_yolo_depth.py         # 뎁스 인식 테스트
+│       ├── isaac_sim_yolo_tf.py            # TF 변환 테스트
+│       └── isaac_sim_yolo_test.py          # YOLO 인식 테스트
 ├── ros2_packages/
-│   └── isaac_moveit_bridge/               # Isaac Sim ↔ MoveIt2 브릿지 패키지
+│   ├── isaac_moveit_bridge/               # Isaac Sim ↔ MoveIt2 브릿지 패키지
+│   └── open_manipulator_patches/          # open_manipulator 커스텀 수정 파일
 └── yolo/
     ├── weights/best.pt                    # 학습된 YOLO 모델
     └── dataset/                           # 학습 데이터셋
@@ -94,7 +97,7 @@ ros2 launch realsense2_camera rs_launch.py
 ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.01 --z 0.062 --roll 0.0 --pitch 0.0 --yaw 0.0 --frame-id link5 --child-frame-id camera_link
 
 # 5. 메인 노드 실행
-python3 nodes/real_robot_yolo_moveit.py
+python3 nodes/real_robot/real_robot_yolo_moveit.py
 ```
 
 ### 실제 로봇 주요 설정
@@ -122,15 +125,15 @@ ros2 run isaac_moveit_bridge bridge
 ros2 launch open_manipulator_x_moveit_config moveit_core.launch.py
 
 # 5. PID 제어기 실행
-python3 nodes/pid_joint_controller.py
+python3 nodes/simulation/pid_joint_controller.py
 
 # 6. 메인 노드 실행
-python3 nodes/isaac_sim_yolo_moveit.py
+python3 nodes/simulation/isaac_sim_yolo_moveit.py
 ```
 
 ## PID 제어기
 
-`nodes/pid_joint_controller.py`
+`nodes/simulation/pid_joint_controller.py`
 
 MoveIt2가 계획한 궤적을 실제 관절 위치 피드백으로 추종합니다.
 
