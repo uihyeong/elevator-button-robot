@@ -209,18 +209,39 @@ class IsaacSimIK(Node):
     # ── 버튼 누르기 ────────────────────────────────────────────────────────
 
     def press_button(self, X, Y, Z):
-        joints = solve_ik(X, Y, Z, phi_ee=0.0)
-        if joints is None:
-            self.get_logger().error(f'IK 실패: ({X:.3f},{Y:.3f},{Z:.3f}) 도달 불가')
+        APPROACH_OFFSET = 0.05  # 버튼 5cm 앞에서 멈춤
+
+        # ── Step 1: 접근 위치 (x만 뒤로) ─────────────────────────────────
+        joints_pre = solve_ik(X - APPROACH_OFFSET, Y, Z, phi_ee=0.0)
+        if joints_pre is None:
+            self.get_logger().error(f'IK 실패 (접근): ({X-APPROACH_OFFSET:.3f},{Y:.3f},{Z:.3f})')
             self.button_pressed = False
             self.status_pub.publish(String(data='FAILED'))
             return
 
-        j1, j2, j3, j4 = joints
+        j1, j2, j3, j4 = joints_pre
         self.get_logger().info(
-            f'IK 성공 → j1={math.degrees(j1):.1f}° j2={math.degrees(j2):.1f}° '
+            f'[Step1] j1={math.degrees(j1):.1f}° j2={math.degrees(j2):.1f}° '
             f'j3={math.degrees(j3):.1f}° j4={math.degrees(j4):.1f}°')
+        ok = self.move_joints([('joint1',j1),('joint2',j2),('joint3',j3),('joint4',j4)])
+        if not ok:
+            self.get_logger().error('❌ Step1 이동 실패')
+            self.button_pressed = False
+            self.status_pub.publish(String(data='FAILED'))
+            return
 
+        # ── Step 2: x축으로만 전진하여 버튼 누르기 ──────────────────────
+        joints_press = solve_ik(X, Y, Z, phi_ee=0.0)
+        if joints_press is None:
+            self.get_logger().error(f'IK 실패 (누르기): ({X:.3f},{Y:.3f},{Z:.3f})')
+            self.button_pressed = False
+            self.status_pub.publish(String(data='FAILED'))
+            return
+
+        j1, j2, j3, j4 = joints_press
+        self.get_logger().info(
+            f'[Step2] j1={math.degrees(j1):.1f}° j2={math.degrees(j2):.1f}° '
+            f'j3={math.degrees(j3):.1f}° j4={math.degrees(j4):.1f}°')
         ok = self.move_joints([('joint1',j1),('joint2',j2),('joint3',j3),('joint4',j4)])
         if ok:
             self.get_logger().info('✅ 버튼 누르기 성공! 3초 후 복귀...')
@@ -230,7 +251,7 @@ class IsaacSimIK(Node):
                 self.current_floor = self.target_floor
             threading.Timer(3.0, self.go_home).start()
         else:
-            self.get_logger().error('❌ 이동 실패')
+            self.get_logger().error('❌ Step2 이동 실패')
             self.button_pressed = False
             self.status_pub.publish(String(data='FAILED'))
 
