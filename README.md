@@ -263,14 +263,11 @@ ros2 topic pub --once /target_floor std_msgs/Int32 "{data: -1}"
 
 ## YOLO 학습 결과
 
-### 학습 그래프
-![학습 결과](yolo/results/results.png)
-
-### Confusion Matrix
-![Confusion Matrix](yolo/results/confusion_matrix_normalized.png)
-
-### 검증 예측
-![검증 결과](yolo/results/val_batch0_pred.jpg)
+<p align="center">
+  <img src="yolo/results/results.png" width="32%"/>
+  <img src="yolo/results/confusion_matrix_normalized.png" width="32%"/>
+  <img src="yolo/results/val_batch0_pred.jpg" width="32%"/>
+</p>
 
 ## 개발 환경
 
