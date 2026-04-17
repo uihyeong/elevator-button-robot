@@ -1,15 +1,15 @@
+import math
 import rclpy
 import rclpy.time
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from sensor_msgs.msg import Image, CameraInfo, JointState
-from geometry_msgs.msg import PointStamped, PoseStamped
+from geometry_msgs.msg import PointStamped
 from std_msgs.msg import String, Int32
 from cv_bridge import CvBridge
 from ultralytics import YOLO
 from moveit_msgs.action import MoveGroup
-from moveit_msgs.msg import Constraints, JointConstraint, RobotState
-from moveit_msgs.srv import GetPositionIK
+from moveit_msgs.msg import Constraints, JointConstraint
 import cv2
 import numpy as np
 import threading
@@ -22,9 +22,44 @@ import tf2_geometry_msgs
 # - 카메라 토픽:  /camera/color/...  (sim) / /camera/camera/color/... (real)
 # - 뎁스 인코딩: 32FC1 미터 단위    (sim) / 16UC1 mm→/1000 변환       (real)
 # - 버튼 오프셋:  없음               (sim) / X - 0.075m                (real)
-# - EEF 프레임:  link5              (sim) / end_effector_link          (real)
 
 BASE_FRAME = 'open_manipulator_x'
+
+# ─── 해석적 IK (j4 = -(j2+j3) 수평 유지) ────────────────────────────────
+L1    = 0.0595
+L2    = math.sqrt(0.128**2 + 0.024**2)
+ALPHA = math.atan2(0.024, 0.128)
+L3    = 0.124
+L4    = 0.126
+
+JOINT_LIMITS = [
+    (-3.14,  3.14),
+    (-1.5,   1.5),
+    (-1.5,   1.4),
+    (-1.7,   1.97),
+]
+
+
+def analytical_ik(X, Y, Z):
+    """end_effector 수평 유지 (j4 = -(j2+j3)) 해석적 IK. 실패 시 None"""
+    j1 = math.atan2(Y, X)
+    r  = math.sqrt(X**2 + Y**2) - L4
+    h  = Z - L1
+    D  = math.sqrt(r**2 + h**2)
+    if D > L2 + L3:
+        return None
+    cos_j3 = (D**2 - L2**2 - L3**2) / (2 * L2 * L3)
+    cos_j3 = max(-1.0, min(1.0, cos_j3))
+    j3  = -math.acos(cos_j3)
+    phi = math.atan2(h, r)
+    psi = math.atan2(L3 * math.sin(-j3), L2 + L3 * math.cos(-j3))
+    j2  = phi - psi - ALPHA
+    j4  = -(j2 + j3)
+    joints = [j1, j2, j3, j4]
+    for j, (lo, hi) in zip(joints, JOINT_LIMITS):
+        if not (lo <= j <= hi):
+            return None
+    return joints
 
 
 class IsaacSimCartesian(Node):
@@ -59,7 +94,6 @@ class IsaacSimCartesian(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         self._action_client = ActionClient(self, MoveGroup, '/move_action')
-        self._ik_client = self.create_client(GetPositionIK, '/compute_ik')
 
         self.status_pub = self.create_publisher(String, '/robot_status', 10)
 
@@ -232,50 +266,15 @@ class IsaacSimCartesian(Node):
             self.status_pub.publish(String(data='FAILED'))
 
     def compute_ik(self, X, Y, Z):
-        """IK 계산 → joint 값 반환, 실패 시 None"""
-        if not self._ik_client.wait_for_service(timeout_sec=5.0):
-            self.get_logger().error('compute_ik 서비스 없음!')
+        """해석적 IK → joint 값 반환, 실패 시 None"""
+        joints = analytical_ik(X, Y, Z)
+        if joints is None:
+            self.get_logger().error(f'해석적 IK 실패: ({X:.3f}, {Y:.3f}, {Z:.3f}) 도달 불가')
             return None
-
-        request = GetPositionIK.Request()
-        request.ik_request.group_name = 'arm'
-        request.ik_request.ik_link_name = 'end_effector_link'
-        request.ik_request.timeout.sec = 5
-
-        target_pose = PoseStamped()
-        target_pose.header.frame_id = BASE_FRAME
-        target_pose.header.stamp = rclpy.time.Time().to_msg()
-        target_pose.pose.position.x = X
-        target_pose.pose.position.y = Y
-        target_pose.pose.position.z = Z
-        target_pose.pose.orientation.w = 1.0
-        request.ik_request.pose_stamped = target_pose
-
-        with self.lock:
-            if self.current_joint_state is not None:
-                request.ik_request.robot_state.joint_state = self.current_joint_state
-
-        future = self._ik_client.call_async(request)
-        start = time.time()
-        while not future.done():
-            if time.time() - start > 5.0:
-                self.get_logger().error('IK 타임아웃!')
-                return None
-            time.sleep(0.05)
-
-        response = future.result()
-        if response.error_code.val != 1:
-            self.get_logger().error(f'IK 실패: error_code={response.error_code.val}')
-            return None
-
-        joint_state = response.solution.joint_state
-        joint_names = ['joint1', 'joint2', 'joint3', 'joint4']
-        joints = []
-        for name in joint_names:
-            if name in joint_state.name:
-                idx = joint_state.name.index(name)
-                joints.append((name, joint_state.position[idx]))
-        return joints
+        names = ['joint1', 'joint2', 'joint3', 'joint4']
+        self.get_logger().info(
+            f'IK: j1={joints[0]:.3f} j2={joints[1]:.3f} j3={joints[2]:.3f} j4={joints[3]:.3f}')
+        return list(zip(names, joints))
 
     def move_and_wait(self, joint_values):
         """MoveGroup으로 이동 후 결과 반환 (블로킹)"""
