@@ -189,10 +189,10 @@ class IsaacSimCartesian(Node):
     # ─── Cartesian Path ───────────────────────────────────────────────────
 
     def get_current_eef_pose(self):
-        """현재 end_effector_link 위치를 BASE_FRAME으로 반환"""
+        """현재 EEF 위치를 BASE_FRAME으로 반환 (시뮬레이션: link5)"""
         try:
             transform = self.tf_buffer.lookup_transform(
-                BASE_FRAME, 'end_effector_link', rclpy.time.Time())
+                BASE_FRAME, 'link5', rclpy.time.Time())
             t = transform.transform.translation
             r = transform.transform.rotation
             return t.x, t.y, t.z, r
@@ -234,7 +234,7 @@ class IsaacSimCartesian(Node):
         req.header.frame_id = BASE_FRAME
         req.header.stamp = rclpy.time.Time().to_msg()
         req.group_name = 'arm'
-        req.link_name = 'end_effector_link'
+        req.link_name = 'link5'
         req.waypoints = [waypoint_z, waypoint_x]
         req.max_step = 0.01        # 1cm 간격 보간
         req.jump_threshold = 0.0   # jump 체크 비활성화
