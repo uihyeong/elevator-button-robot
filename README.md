@@ -59,6 +59,84 @@ PID 제어기로 관절 위치 추종
 로봇팔 이동 및 버튼 누르기
 ```
 
+## 사전 설치 (Prerequisites)
+
+> 공식 문서: [OpenMANIPULATOR-X Quick Start Guide](https://emanual.robotis.com/docs/en/platform/openmanipulator_x/quick_start_guide/)
+
+### 1. ROS2 패키지 설치
+
+```bash
+sudo apt install \
+  ros-humble-ros2-control \
+  ros-humble-moveit* \
+  ros-humble-gazebo-ros2-control \
+  ros-humble-ros2-controllers \
+  ros-humble-controller-manager \
+  ros-humble-position-controllers \
+  ros-humble-joint-state-broadcaster \
+  ros-humble-joint-trajectory-controller \
+  ros-humble-gripper-controllers \
+  ros-humble-hardware-interface \
+  ros-humble-xacro
+```
+
+### 2. colcon 워크스페이스 구성
+
+```bash
+mkdir -p ~/colcon_ws/src
+cd ~/colcon_ws/src
+
+git clone -b humble https://github.com/ROBOTIS-GIT/DynamixelSDK.git
+git clone -b humble https://github.com/ROBOTIS-GIT/open_manipulator.git
+git clone -b humble https://github.com/ROBOTIS-GIT/dynamixel_hardware_interface.git
+git clone -b humble https://github.com/ROBOTIS-GIT/dynamixel_interfaces.git
+```
+
+### 3. open_manipulator 패치 적용
+
+이 저장소의 커스텀 파일을 복사합니다 (`ros2_packages/open_manipulator_patches/` 참고).
+
+```bash
+git clone https://github.com/uihyeong/elevator-button-robot.git
+cd elevator-button-robot
+
+cp ros2_packages/open_manipulator_patches/open_manipulator_x_description/launch/isaac_sim_tf.launch.py \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/launch/
+
+cp ros2_packages/open_manipulator_patches/open_manipulator_x_description/urdf/open_manipulator_x_with_camera.urdf.xacro \
+   ros2_packages/open_manipulator_patches/open_manipulator_x_description/urdf/open_manipulator_x_with_camera.urdf \
+   ros2_packages/open_manipulator_patches/open_manipulator_x_description/urdf/stand_rs-d435_s01.stl \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/urdf/
+
+cp ros2_packages/open_manipulator_patches/open_manipulator_x_moveit_config/config/kinematics.yaml \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_moveit_config/config/kinematics.yaml
+```
+
+### 4. D435 카메라 드라이버 설치 (실제 로봇 한정)
+
+```bash
+cd ~/colcon_ws/src
+git clone -b humble https://github.com/IntelRealSense/realsense-ros.git
+```
+
+### 5. Python 패키지 설치
+
+```bash
+pip install ultralytics
+pip install "numpy<2.0.0"
+```
+
+### 6. 빌드
+
+```bash
+cd ~/colcon_ws
+colcon build --symlink-install
+echo 'source ~/colcon_ws/install/local_setup.bash' >> ~/.bashrc
+source ~/.bashrc
+```
+
+---
+
 ## 파일 구조
 
 ```
