@@ -196,7 +196,7 @@ class IsaacSimCartesian(Node):
                         self.button_pressed = True
                         threading.Thread(
                             target=self.move_two_step,
-                            args=(X, Y, Z), daemon=True).start()
+                            args=(X - 0.05, Y, Z), daemon=True).start()  # 버튼 5cm 앞에서 멈춤
 
                 except Exception as e:
                     self.get_logger().warn(f'TF 변환 실패: {e}')
