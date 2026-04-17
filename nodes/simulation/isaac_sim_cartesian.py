@@ -195,7 +195,7 @@ class IsaacSimCartesian(Node):
                         self.get_logger().info(f'{cls} 감지! 2-step IK 시작')
                         self.button_pressed = True
                         threading.Thread(
-                            target=self.move_two_step,
+                            target=self.move_direct,
                             args=(X - 0.05, Y, Z), daemon=True).start()  # 버튼 5cm 앞에서 멈춤
 
                 except Exception as e:
@@ -206,53 +206,17 @@ class IsaacSimCartesian(Node):
 
     # ─── 2-step IK 이동 ───────────────────────────────────────────────────
 
-    def get_current_eef_pos(self):
-        """현재 link5 위치를 BASE_FRAME으로 반환"""
-        try:
-            t = self.tf_buffer.lookup_transform(
-                BASE_FRAME, 'link5', rclpy.time.Time())
-            return (t.transform.translation.x,
-                    t.transform.translation.y,
-                    t.transform.translation.z)
-        except Exception as e:
-            self.get_logger().warn(f'link5 TF 조회 실패: {e}')
-            return None
 
-    def move_two_step(self, target_x, target_y, target_z):
-        """
-        1단계: z축 먼저 이동 (현재 x,y 유지, 목표 z)
-        2단계: x축 이동    (목표 x,y,z)
-        """
-        cur = self.get_current_eef_pos()
-        if cur is None:
-            self.button_pressed = False
-            return
-        cur_x, cur_y, cur_z = cur
-        self.get_logger().info(
-            f'현재: ({cur_x:.3f}, {cur_y:.3f}, {cur_z:.3f}) → 목표: ({target_x:.3f}, {target_y:.3f}, {target_z:.3f})')
+    def move_direct(self, target_x, target_y, target_z):
+        """해석적 IK로 직접 이동 (j4=-(j2+j3) 수평 유지)"""
+        self.get_logger().info(f'목표: ({target_x:.3f}, {target_y:.3f}, {target_z:.3f})')
 
-        # 1단계: z 이동
-        self.get_logger().info(f'1단계: z축 이동 → z={target_z:.3f}')
-        joints_z = self.compute_ik(cur_x, cur_y, target_z)
-        if joints_z is None:
+        joints = self.compute_ik(target_x, target_y, target_z)
+        if joints is None:
             self.button_pressed = False
             return
 
-        success = self.move_and_wait(joints_z)
-        if not success:
-            self.get_logger().error('1단계 이동 실패')
-            self.button_pressed = False
-            self.status_pub.publish(String(data='FAILED'))
-            return
-
-        # 2단계: x 이동
-        self.get_logger().info(f'2단계: x축 이동 → x={target_x:.3f}')
-        joints_x = self.compute_ik(target_x, target_y, target_z)
-        if joints_x is None:
-            self.button_pressed = False
-            return
-
-        success = self.move_and_wait(joints_x)
+        success = self.move_and_wait(joints)
         if success:
             self.get_logger().info('✅ 버튼 누르기 성공! 3초 후 복귀...')
             self.status_pub.publish(String(data='BUTTON_PRESSED'))
@@ -261,7 +225,7 @@ class IsaacSimCartesian(Node):
                 self.current_floor = self.target_floor
             threading.Timer(3.0, self.return_to_init).start()
         else:
-            self.get_logger().error('2단계 이동 실패')
+            self.get_logger().error('이동 실패')
             self.button_pressed = False
             self.status_pub.publish(String(data='FAILED'))
 
