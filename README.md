@@ -25,9 +25,18 @@
 
 ## 데모
 
+### 실제 로봇
+
 <p align="center">
   <img src="media/demo1.gif" width="48%"/>
   <img src="media/demo2.gif" width="48%"/>
+</p>
+
+### Isaac Sim 시뮬레이션
+
+<p align="center">
+  <img src="media/sim_full.gif" width="48%"/>
+  <img src="media/sim_robot.gif" width="48%"/>
 </p>
 
 ## 기술 스택
