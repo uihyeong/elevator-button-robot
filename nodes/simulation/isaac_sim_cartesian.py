@@ -3,13 +3,13 @@ import rclpy.time
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from sensor_msgs.msg import Image, CameraInfo, JointState
-from geometry_msgs.msg import PointStamped, Pose
+from geometry_msgs.msg import PointStamped, PoseStamped
 from std_msgs.msg import String, Int32
 from cv_bridge import CvBridge
 from ultralytics import YOLO
-from moveit_msgs.action import MoveGroup, ExecuteTrajectory
-from moveit_msgs.msg import Constraints, JointConstraint
-from moveit_msgs.srv import GetCartesianPath
+from moveit_msgs.action import MoveGroup
+from moveit_msgs.msg import Constraints, JointConstraint, RobotState
+from moveit_msgs.srv import GetPositionIK
 import cv2
 import numpy as np
 import threading
@@ -22,6 +22,7 @@ import tf2_geometry_msgs
 # - 카메라 토픽:  /camera/color/...  (sim) / /camera/camera/color/... (real)
 # - 뎁스 인코딩: 32FC1 미터 단위    (sim) / 16UC1 mm→/1000 변환       (real)
 # - 버튼 오프셋:  없음               (sim) / X - 0.075m                (real)
+# - EEF 프레임:  link5              (sim) / end_effector_link          (real)
 
 BASE_FRAME = 'open_manipulator_x'
 
@@ -44,34 +45,24 @@ class IsaacSimCartesian(Node):
 
         self.HOME_JOINTS = [
             ('joint1',  0.0),
-            ('joint2', -0.9948),  # -57deg
-            ('joint3',  0.6981),  # +40deg
-            ('joint4',  0.2967),  # +17deg
+            ('joint2', -0.9948),
+            ('joint3',  0.6981),
+            ('joint4',  0.2967),
         ]
 
-        # 카메라 파라미터 기본값
         self.fx = 615.0
         self.fy = 615.0
         self.cx = 320.0
         self.cy = 240.0
 
-        # TF2
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
-        # MoveGroup 액션 (home 이동용)
-        self._move_client = ActionClient(self, MoveGroup, '/move_action')
+        self._action_client = ActionClient(self, MoveGroup, '/move_action')
+        self._ik_client = self.create_client(GetPositionIK, '/compute_ik')
 
-        # Cartesian path 서비스
-        self._cartesian_client = self.create_client(GetCartesianPath, '/compute_cartesian_path')
-
-        # Cartesian path 실행 액션
-        self._execute_client = ActionClient(self, ExecuteTrajectory, '/execute_trajectory')
-
-        # 상태 발행
         self.status_pub = self.create_publisher(String, '/robot_status', 10)
 
-        # 시뮬레이션 카메라 토픽
         self.sub = self.create_subscription(
             Image, '/camera/color/image_raw', self.image_callback, 10)
         self.depth_sub = self.create_subscription(
@@ -83,9 +74,7 @@ class IsaacSimCartesian(Node):
         self.floor_sub = self.create_subscription(
             Int32, '/target_floor', self.target_floor_callback, 10)
 
-        self.get_logger().info('Isaac Sim Cartesian Path 노드 시작!')
-        self.get_logger().info(f'현재 층수: {self.current_floor}층 | /target_floor 대기 중...')
-
+        self.get_logger().info('Isaac Sim Cartesian (2-step IK) 시작!')
         self._home_timer = self.create_timer(2.0, self._move_to_home_once)
 
     # ─── 콜백 ────────────────────────────────────────────────────────────
@@ -97,7 +86,6 @@ class IsaacSimCartesian(Node):
             return
         if floor == self.target_floor and (self.button_pressed or self.task_done):
             return
-
         self.target_floor = floor
         self.target_button = 'up_button' if floor > self.current_floor else 'down_button'
         self.button_pressed = False
@@ -117,7 +105,6 @@ class IsaacSimCartesian(Node):
 
     def depth_callback(self, msg):
         with self.lock:
-            # 시뮬레이션: 32FC1 (이미 미터 단위)
             self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='32FC1')
 
     def image_callback(self, msg):
@@ -135,13 +122,11 @@ class IsaacSimCartesian(Node):
                 conf = float(box.conf)
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 color = colors.get(cls, (255, 255, 0))
-
                 cx_box = (x1 + x2) // 2
                 cy_box = (y1 + y2) // 2
 
                 if depth is None:
                     continue
-
                 region = depth[cy_box-2:cy_box+3, cx_box-2:cx_box+3]
                 valid = region[(region > 0) & ~np.isnan(region)]
                 if len(valid) == 0:
@@ -150,14 +135,13 @@ class IsaacSimCartesian(Node):
 
                 X_cam = (cx_box - self.cx) / self.fx * d
                 Y_cam = (cy_box - self.cy) / self.fy * d
-                Z_cam = d
 
                 point_cam = PointStamped()
                 point_cam.header.frame_id = 'camera_color_optical_frame'
                 point_cam.header.stamp = rclpy.time.Time().to_msg()
                 point_cam.point.x = X_cam
                 point_cam.point.y = Y_cam
-                point_cam.point.z = Z_cam
+                point_cam.point.z = d
 
                 try:
                     point_base = self.tf_buffer.transform(point_cam, BASE_FRAME)
@@ -174,11 +158,11 @@ class IsaacSimCartesian(Node):
 
                     if (cls == self.target_button and conf > 0.7
                             and not self.button_pressed and self.ready and not self.task_done):
-                        self.get_logger().info(f'{cls} 감지! Cartesian path 시작')
+                        self.get_logger().info(f'{cls} 감지! 2-step IK 시작')
                         self.button_pressed = True
                         threading.Thread(
-                            target=self.move_cartesian,
-                            args=(X, Y, Z), daemon=True).start()  # 시뮬레이션: 오프셋 없음
+                            target=self.move_two_step,
+                            args=(X, Y, Z), daemon=True).start()
 
                 except Exception as e:
                     self.get_logger().warn(f'TF 변환 실패: {e}')
@@ -186,114 +170,56 @@ class IsaacSimCartesian(Node):
         cv2.imshow('Isaac Sim Cartesian', frame)
         cv2.waitKey(1)
 
-    # ─── Cartesian Path ───────────────────────────────────────────────────
+    # ─── 2-step IK 이동 ───────────────────────────────────────────────────
 
-    def get_current_eef_pose(self):
-        """현재 EEF 위치를 BASE_FRAME으로 반환 (시뮬레이션: link5)"""
+    def get_current_eef_pos(self):
+        """현재 link5 위치를 BASE_FRAME으로 반환"""
         try:
-            transform = self.tf_buffer.lookup_transform(
+            t = self.tf_buffer.lookup_transform(
                 BASE_FRAME, 'link5', rclpy.time.Time())
-            t = transform.transform.translation
-            r = transform.transform.rotation
-            return t.x, t.y, t.z, r
+            return (t.transform.translation.x,
+                    t.transform.translation.y,
+                    t.transform.translation.z)
         except Exception as e:
-            self.get_logger().warn(f'EEF TF 조회 실패: {e}')
+            self.get_logger().warn(f'link5 TF 조회 실패: {e}')
             return None
 
-    def move_cartesian(self, target_x, target_y, target_z):
-        """Z축 이동 후 X축 이동 (2단계 Cartesian path)"""
-        if not self._cartesian_client.wait_for_service(timeout_sec=5.0):
-            self.get_logger().error('compute_cartesian_path 서비스 없음!')
+    def move_two_step(self, target_x, target_y, target_z):
+        """
+        1단계: z축 먼저 이동 (현재 x,y 유지, 목표 z)
+        2단계: x축 이동    (목표 x,y,z)
+        """
+        cur = self.get_current_eef_pos()
+        if cur is None:
             self.button_pressed = False
             return
-
-        result = self.get_current_eef_pose()
-        if result is None:
-            self.button_pressed = False
-            return
-        cur_x, cur_y, cur_z, cur_rot = result
+        cur_x, cur_y, cur_z = cur
         self.get_logger().info(
-            f'현재 EEF: ({cur_x:.3f}, {cur_y:.3f}, {cur_z:.3f}) '
-            f'→ 목표: ({target_x:.3f}, {target_y:.3f}, {target_z:.3f})')
+            f'현재: ({cur_x:.3f}, {cur_y:.3f}, {cur_z:.3f}) → 목표: ({target_x:.3f}, {target_y:.3f}, {target_z:.3f})')
 
-        # 웨이포인트 1: z축 먼저
-        waypoint_z = Pose()
-        waypoint_z.position.x = cur_x
-        waypoint_z.position.y = cur_y
-        waypoint_z.position.z = target_z
-        waypoint_z.orientation.w = 1.0
+        # 1단계: z 이동
+        self.get_logger().info(f'1단계: z축 이동 → z={target_z:.3f}')
+        joints_z = self.compute_ik(cur_x, cur_y, target_z)
+        if joints_z is None:
+            self.button_pressed = False
+            return
 
-        # 웨이포인트 2: x축 이동 (버튼 접근)
-        waypoint_x = Pose()
-        waypoint_x.position.x = target_x
-        waypoint_x.position.y = target_y
-        waypoint_x.position.z = target_z
-        waypoint_x.orientation.w = 1.0
-
-        req = GetCartesianPath.Request()
-        req.header.frame_id = BASE_FRAME
-        req.header.stamp = rclpy.time.Time().to_msg()
-        req.group_name = 'arm'
-        req.link_name = 'link5'
-        req.waypoints = [waypoint_z, waypoint_x]
-        req.max_step = 0.01        # 1cm 간격 보간
-        req.jump_threshold = 0.0   # jump 체크 비활성화
-        req.avoid_collisions = True
-
-        with self.lock:
-            if self.current_joint_state is not None:
-                req.start_state.joint_state = self.current_joint_state
-
-        self.get_logger().info('Cartesian path 계산 중...')
-        future = self._cartesian_client.call_async(req)
-
-        start = time.time()
-        while not future.done():
-            if time.time() - start > 10.0:
-                self.get_logger().error('Cartesian path 서비스 타임아웃!')
-                self.button_pressed = False
-                return
-            time.sleep(0.05)
-
-        response = future.result()
-        fraction = response.fraction
-
-        if fraction < 0.9:
-            self.get_logger().error(f'Cartesian path 불완전: {fraction:.1%} 만 계획됨')
+        success = self.move_and_wait(joints_z)
+        if not success:
+            self.get_logger().error('1단계 이동 실패')
             self.button_pressed = False
             self.status_pub.publish(String(data='FAILED'))
             return
 
-        self.get_logger().info(f'Cartesian path 성공 ({fraction:.1%}) → 실행')
-        self.execute_trajectory(response.solution)
-
-    def execute_trajectory(self, trajectory):
-        if not self._execute_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().error('execute_trajectory 서버 없음!')
+        # 2단계: x 이동
+        self.get_logger().info(f'2단계: x축 이동 → x={target_x:.3f}')
+        joints_x = self.compute_ik(target_x, target_y, target_z)
+        if joints_x is None:
             self.button_pressed = False
             return
 
-        self.status_pub.publish(String(data='MOVING'))
-
-        goal = ExecuteTrajectory.Goal()
-        goal.trajectory = trajectory
-        future = self._execute_client.send_goal_async(goal)
-        future.add_done_callback(self.execute_response_callback)
-
-    def execute_response_callback(self, future):
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            self.get_logger().error('궤적 실행 거부됨')
-            self.button_pressed = False
-            self.status_pub.publish(String(data='FAILED'))
-            return
-        result_future = goal_handle.get_result_async()
-        result_future.add_done_callback(self.execute_result_callback)
-
-    def execute_result_callback(self, future):
-        result = future.result().result
-        code = result.error_code.val
-        if code == 1:
+        success = self.move_and_wait(joints_x)
+        if success:
             self.get_logger().info('✅ 버튼 누르기 성공! 3초 후 복귀...')
             self.status_pub.publish(String(data='BUTTON_PRESSED'))
             self.task_done = True
@@ -301,21 +227,63 @@ class IsaacSimCartesian(Node):
                 self.current_floor = self.target_floor
             threading.Timer(3.0, self.return_to_init).start()
         else:
-            self.get_logger().error(f'❌ 궤적 실행 실패: error_code={code}')
-            self.status_pub.publish(String(data='FAILED'))
+            self.get_logger().error('2단계 이동 실패')
             self.button_pressed = False
+            self.status_pub.publish(String(data='FAILED'))
 
-    # ─── Home 이동 ────────────────────────────────────────────────────────
+    def compute_ik(self, X, Y, Z):
+        """IK 계산 → joint 값 반환, 실패 시 None"""
+        if not self._ik_client.wait_for_service(timeout_sec=5.0):
+            self.get_logger().error('compute_ik 서비스 없음!')
+            return None
 
-    def _move_to_home_once(self):
-        self._home_timer.cancel()
-        self.move_to_home()
+        request = GetPositionIK.Request()
+        request.ik_request.group_name = 'arm'
+        request.ik_request.ik_link_name = 'end_effector_link'
+        request.ik_request.timeout.sec = 5
 
-    def move_to_home(self):
-        self.get_logger().info('home 포지션으로 이동 중...')
-        if not self._move_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().warn('MoveIt2 서버 연결 안됨!')
-            return
+        target_pose = PoseStamped()
+        target_pose.header.frame_id = BASE_FRAME
+        target_pose.header.stamp = rclpy.time.Time().to_msg()
+        target_pose.pose.position.x = X
+        target_pose.pose.position.y = Y
+        target_pose.pose.position.z = Z
+        target_pose.pose.orientation.w = 1.0
+        request.ik_request.pose_stamped = target_pose
+
+        with self.lock:
+            if self.current_joint_state is not None:
+                request.ik_request.robot_state.joint_state = self.current_joint_state
+
+        future = self._ik_client.call_async(request)
+        start = time.time()
+        while not future.done():
+            if time.time() - start > 5.0:
+                self.get_logger().error('IK 타임아웃!')
+                return None
+            time.sleep(0.05)
+
+        response = future.result()
+        if response.error_code.val != 1:
+            self.get_logger().error(f'IK 실패: error_code={response.error_code.val}')
+            return None
+
+        joint_state = response.solution.joint_state
+        joint_names = ['joint1', 'joint2', 'joint3', 'joint4']
+        joints = []
+        for name in joint_names:
+            if name in joint_state.name:
+                idx = joint_state.name.index(name)
+                joints.append((name, joint_state.position[idx]))
+        return joints
+
+    def move_and_wait(self, joint_values):
+        """MoveGroup으로 이동 후 결과 반환 (블로킹)"""
+        if not self._action_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('MoveIt2 서버 없음!')
+            return False
+
+        self.status_pub.publish(String(data='MOVING'))
 
         goal = MoveGroup.Goal()
         goal.request.group_name = 'arm'
@@ -327,7 +295,7 @@ class IsaacSimCartesian(Node):
         goal.planning_options.replan = True
 
         constraints = Constraints()
-        for name, value in self.HOME_JOINTS:
+        for name, value in joint_values:
             jc = JointConstraint()
             jc.joint_name = name
             jc.position = value
@@ -335,35 +303,54 @@ class IsaacSimCartesian(Node):
             jc.tolerance_below = 0.05
             jc.weight = 1.0
             constraints.joint_constraints.append(jc)
-
         goal.request.goal_constraints.append(constraints)
-        future = self._move_client.send_goal_async(goal)
-        future.add_done_callback(self.home_response_callback)
 
-    def return_to_init(self):
-        self.move_to_home()
+        # 블로킹으로 결과 대기
+        result_container = [None]
+        done_event = threading.Event()
 
-    def home_response_callback(self, future):
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            self.get_logger().error('home 이동 거부됨')
-            return
-        result_future = goal_handle.get_result_async()
-        result_future.add_done_callback(self.home_result_callback)
+        def result_cb(future):
+            try:
+                result_container[0] = future.result().result
+            except Exception:
+                pass
+            done_event.set()
 
-    def home_result_callback(self, future):
-        result = future.result().result
-        code = result.error_code.val
-        if code == 1:
+        def response_cb(future):
+            gh = future.result()
+            if not gh.accepted:
+                done_event.set()
+                return
+            gh.get_result_async().add_done_callback(result_cb)
+
+        self._action_client.send_goal_async(goal).add_done_callback(response_cb)
+        done_event.wait(timeout=20.0)
+
+        result = result_container[0]
+        return result is not None and result.error_code.val == 1
+
+    # ─── Home 이동 ────────────────────────────────────────────────────────
+
+    def _move_to_home_once(self):
+        self._home_timer.cancel()
+        threading.Thread(target=self._home_blocking, daemon=True).start()
+
+    def _home_blocking(self):
+        self.get_logger().info('home 포지션으로 이동 중...')
+        success = self.move_and_wait(self.HOME_JOINTS)
+        if success:
             self.get_logger().info('✅ home 도착! 5초 후 인식 시작...')
             self.status_pub.publish(String(data='SUCCESS'))
         else:
-            self.get_logger().error(f'❌ home 이동 실패: error_code={code}')
+            self.get_logger().error('❌ home 이동 실패')
         self.button_pressed = False
         if not self.task_done:
             threading.Timer(5.0, self._set_ready).start()
         else:
             self.get_logger().info('✅ 작업 완료! 대기 중...')
+
+    def return_to_init(self):
+        threading.Thread(target=self._home_blocking, daemon=True).start()
 
     def _set_ready(self):
         self.ready = True
