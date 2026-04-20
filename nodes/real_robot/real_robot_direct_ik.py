@@ -104,14 +104,15 @@ def solve_ik(X: float, Y: float, Z: float):
 
     # ─── 2-link IK 수식 유도 ────────────────────────────────────────────────
     # FK에서 link2(joint2→joint3) 방향 = R_y(j2) * (0.024, 0, 0.128)
-    #   r성분 = L2*cos(j2 + ALPHA),  z성분 = L2*sin(j2 + ALPHA)
+    #   r성분 = L2*cos(j2 - ALPHA),  z성분 = L2*sin(ALPHA - j2)
+    #   → link2 수평각 φ2 = ALPHA - j2  → j2 = ALPHA - φ2
     # link3(joint3→joint4) 방향 = R_y(j2+j3) * (0.124, 0, 0)
-    #   r성분 = L3*cos(j2+j3),      z성분 = L3*sin(j2+j3)
+    #   r성분 = L3*cos(j2+j3),      z성분 = -L3*sin(j2+j3)
+    #   → link3 수평각 φ3 = -(j2+j3)
     #
-    # link1의 수평각 alpha1 = j2 + ALPHA
-    # link2의 수평각 alpha2 = j2 + j3
-    # link1-link2 사이 내각 psi = alpha2 - alpha1 = j3 - ALPHA
-    # → j3 = psi + ALPHA
+    # 표준 2R IK: alpha1 = φ2 (link2 수평각)
+    # psi = θ_3 = φ3 - φ2 (elbow 상대각) → φ3 = φ2 + psi
+    # j2+j3 = -φ3 = -(φ2 + psi) → j3 = -φ2 - psi - j2 = -ALPHA - psi
     # ────────────────────────────────────────────────────────────────────────
 
     c_psi = (D**2 - L2**2 - L3**2) / (2.0 * L2 * L3)
@@ -121,9 +122,9 @@ def solve_ik(X: float, Y: float, Z: float):
     for psi in (-math.acos(c_psi), math.acos(c_psi)):
         s_psi  = math.sin(psi)
         gamma  = math.atan2(L3 * s_psi, L2 + L3 * c_psi)
-        alpha1 = math.atan2(dz, dr) - gamma   # link2-3 수평각
-        j2     = alpha1 - ALPHA
-        j3     = psi + ALPHA
+        alpha1 = math.atan2(dz, dr) - gamma   # link2 수평각 = ALPHA - j2
+        j2     = ALPHA - alpha1
+        j3     = -psi - ALPHA
         j4     = -(j2 + j3)
 
         angles = [j1, j2, j3, j4]
