@@ -62,7 +62,7 @@ JOINT_LIMITS = [
 
 JOINT_NAMES = ['joint1', 'joint2', 'joint3', 'joint4']
 
-HOME_JOINTS  = [0.0, -0.9948, 0.6981, 0.2967]   # home 포지션 (라디안)
+HOME_JOINTS  = [-3.141, -0.9948, 0.6981, 0.2967]   # home 포지션 (라디안)
 MOVE_SPEED   = 0.5   # rad/s (최대 이동 속도, 안전용 제한)
 MIN_DURATION = 2.0   # 최소 이동 시간 (초)
 
@@ -134,11 +134,18 @@ def solve_ik(X: float, Y: float, Z: float):
     return None   # 두 해 모두 관절 한계 위반
 
 
+def _shortest_path(target: float, current: float) -> float:
+    """최단 경로 각도 정규화: current 기준으로 ±π 이내로 target을 조정."""
+    diff = (target - current + math.pi) % (2 * math.pi) - math.pi
+    return current + diff
+
+
 def make_trajectory(target_joints: list, current_joints: list, speed: float = MOVE_SPEED):
     """
     현재 → 목표 관절 각도를 잇는 단순 1-웨이포인트 JointTrajectory 생성.
     이동 시간은 최대 관절 변위 / speed 로 계산.
     """
+    target_joints = [_shortest_path(t, c) for t, c in zip(target_joints, current_joints)]
     max_disp = max(abs(t - c) for t, c in zip(target_joints, current_joints))
     duration = max(max_disp / speed, MIN_DURATION)
 
