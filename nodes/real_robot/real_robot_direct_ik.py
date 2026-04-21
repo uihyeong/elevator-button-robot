@@ -312,7 +312,7 @@ class DirectIKNode(Node):
                         self.get_logger().info(f'{cls} 감지! IK 계산 시작')
                         threading.Thread(
                             target=self._press_button,
-                            args=(X - 0.075, Y, Z), daemon=True).start()
+                            args=(X + 0.05, Y - 0.02, Z - 0.03), daemon=True).start()
 
                 except Exception as e:
                     self.get_logger().warn(f'TF 변환 실패: {e}')
