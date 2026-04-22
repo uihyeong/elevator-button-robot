@@ -43,19 +43,22 @@ JOINT_NAMES   = ['joint1', 'joint2', 'joint3', 'joint4']
 HOME_JOINTS   = [-3.141, -0.9948,  0.6981,  0.2967]
 # joint3·4를 최대로 접어서 link3과 link4가 포개지는 자세
 SHRINK_JOINTS = [-3.141, -0.9948,  1.3000, -1.5700]
-SHRINK_HOLD_SEC = 2.0   # 움츠린 자세 유지 후 홈 복귀까지 대기 (초)
-MOVE_SPEED    = 0.5
-MIN_DURATION  = 2.0
+SHRINK_HOLD_SEC  = 2.0   # 움츠린 자세 유지 후 홈 복귀까지 대기 (초)
+MOVE_SPEED       = 0.5   # 홈 복귀 속도 (rad/s)
+MIN_DURATION     = 2.0   # 홈 복귀 최소 이동 시간 (초)
+SHRINK_SPEED     = 2.0   # 움츠리기 속도 (rad/s) — 빠르게 반응
+SHRINK_MIN_DUR   = 0.5   # 움츠리기 최소 이동 시간 (초)
 
 
-def make_trajectory(target_joints, current_joints):
+def make_trajectory(target_joints, current_joints,
+                    speed: float = MOVE_SPEED, min_dur: float = MIN_DURATION):
     def shortest(t, c):
         diff = (t - c + math.pi) % (2 * math.pi) - math.pi
         return c + diff
 
     target_joints = [shortest(t, c) for t, c in zip(target_joints, current_joints)]
     max_disp = max(abs(t - c) for t, c in zip(target_joints, current_joints))
-    duration = max(max_disp / MOVE_SPEED, MIN_DURATION)
+    duration = max(max_disp / speed, min_dur)
 
     traj = JointTrajectory()
     traj.joint_names = JOINT_NAMES
@@ -193,22 +196,23 @@ class ContactDetectorNode(Node):
             self.get_logger().error('arm_controller 없음!')
             return
 
-        # 1단계: joint3·4 접기 (움츠리기)
+        # 1단계: joint3·4 빠르게 접기 (움츠리기)
         self.get_logger().info('⚠️  접촉! joint3·4 접는 중...')
-        ok = self._send_joints(SHRINK_JOINTS)
+        ok = self._send_joints(SHRINK_JOINTS, speed=SHRINK_SPEED, min_dur=SHRINK_MIN_DUR)
         if not ok:
             self.get_logger().error('움츠리기 실패')
 
         # 2초 유지
         time.sleep(SHRINK_HOLD_SEC)
 
-        # 2단계: 홈 복귀
+        # 2단계: 홈 복귀 (일반 속도)
         self.get_logger().info('홈으로 복귀 중...')
         self._send_joints(HOME_JOINTS)
         self.get_logger().info('✅ 홈 복귀 완료. 모니터링 재개.')
         self.status_pub.publish(String(data='CONTACT_RESOLVED'))
 
-    def _send_joints(self, target_joints: list) -> bool:
+    def _send_joints(self, target_joints: list,
+                     speed: float = MOVE_SPEED, min_dur: float = MIN_DURATION) -> bool:
         with self.lock:
             js = self.current_joints
         current = [0.0] * 4
@@ -217,7 +221,7 @@ class ContactDetectorNode(Node):
                 if name in js.name:
                     current[i] = js.position[js.name.index(name)]
 
-        traj, duration = make_trajectory(target_joints, current)
+        traj, duration = make_trajectory(target_joints, current, speed=speed, min_dur=min_dur)
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = traj
 
