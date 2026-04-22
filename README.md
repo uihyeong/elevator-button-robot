@@ -78,10 +78,10 @@ elevator-button-robot/
 ├── nodes/
 │   ├── real_robot/                        # 실제 로봇용
 │   │   ├── real_robot_unified.py          # ★ 통합 노드 (UP/DOWN → 숫자 전체 시퀀스)
-│   │   ├── real_robot_yolo_moveit.py      # YOLO + MoveIt2 IK (UP/DOWN)
-│   │   ├── real_robot_direct_ik.py        # YOLO + 해석적 IK (UP/DOWN, MoveIt 불필요)
-│   │   ├── real_robot_num_ocr_ik.py       # YOLO-seg + EasyOCR + 해석적 IK (숫자 버튼)
-│   │   └── real_robot_num_ocr.py          # OCR 인식 테스트 노드
+│   │   ├── contact_detector.py            # 정지 중 접촉 감지 → 움츠리기 (병렬 실행)
+│   │   ├── real_robot_direct_ik.py        # YOLO + 해석적 IK (UP/DOWN 단독)
+│   │   ├── real_robot_num_ocr_ik.py       # YOLO-seg + EasyOCR + 해석적 IK (숫자 단독)
+│   │   └── real_robot_yolo_moveit.py      # YOLO + MoveIt2 IK (UP/DOWN, 참고용)
 │   ├── simulation/                        # Isaac Sim 시뮬레이션용
 │   │   ├── isaac_sim_yolo_moveit.py        # YOLO + MoveIt2 IK
 │   │   ├── isaac_sim_direct_ik.py          # YOLO + 해석적 IK (MoveIt 불필요)
@@ -89,8 +89,6 @@ elevator-button-robot/
 │   │   ├── isaac_sim_yolo_depth.py         # 뎁스 인식 테스트
 │   │   ├── isaac_sim_yolo_tf.py            # TF 변환 테스트
 │   │   └── isaac_sim_yolo_test.py          # YOLO 인식 테스트
-│   └── test/
-│       └── webcam_ocr_test.py             # 웹캠 OCR 테스트
 ├── ros2_packages/
 │   ├── isaac_moveit_bridge/               # Isaac Sim ↔ MoveIt2 브릿지 패키지
 │   └── open_manipulator_patches/          # open_manipulator 커스텀 수정 파일
@@ -175,20 +173,25 @@ ros2 topic pub --once /target_point geometry_msgs/PointStamped \
     '{header: {frame_id: "world"}, point: {x: 0.25, y: 0.0, z: 0.2}}'
 ```
 
-### 방법 C — 숫자 버튼 인식 (`real_robot_num_ocr_ik.py`)
+### 방법 C — 숫자 버튼 단독 (`real_robot_num_ocr_ik.py`)
 
 YOLO-seg로 버튼 영역을 분할하고 EasyOCR로 숫자를 읽어 목표 층수와 매칭합니다. MoveIt2 없이 동작합니다.
 
 ```bash
-# 메인 노드 (MoveIt2 실행 불필요)
 python3 nodes/real_robot/real_robot_num_ocr_ik.py
 ```
 
-층수 입력:
+### 접촉 감지 (`contact_detector.py`) — 병렬 실행
+
+팔이 정지 중일 때 joint effort를 모니터링하다가 사람이 건드리면 joint3·4를 빠르게 접어 움츠러든 뒤 홈으로 복귀합니다. 통합 노드와 함께 별도 터미널에서 실행합니다.
 
 ```bash
-ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
+python3 nodes/real_robot/contact_detector.py
 ```
+
+- `/robot_status`가 `MOVING`이면 자동으로 감지 중단 (이동 중 오탐 방지)
+- 홈 포지션 effort를 시작 시 자동 측정해 baseline으로 사용
+- 접촉 판정 시: joint3·4 빠르게 접기(2.0 rad/s) → 2초 유지 → 홈 복귀
 
 > **참고**: `numpy < 2.0.0` 필요. cv_bridge가 NumPy 1.x 기준으로 컴파일되어 있습니다.
 > ```bash
@@ -276,27 +279,43 @@ bridge → /joint_target → PID 제어기 → /joint_command → Isaac Sim
 
 ## 토픽 인터페이스
 
+### 실제 로봇 (real_robot_unified.py)
+
+| 토픽 | 방향 | 타입 | 설명 |
+|------|------|------|------|
+| `/target_floor` | 입력 | `std_msgs/Int32` | 목표 층수 (음수=지하, 예: -1=B1) |
+| `/target_point` | 입력 | `geometry_msgs/PointStamped` | 수동 테스트용 world 좌표 직접 입력 |
+| `/robot_status` | 출력 | `std_msgs/String` | `MOVING` / `BUTTON_PRESSED` / `FAILED` |
+
+### 접촉 감지 (contact_detector.py)
+
+| 토픽 | 방향 | 타입 | 설명 |
+|------|------|------|------|
+| `/robot_status` | 입력 | `std_msgs/String` | 이동 중 여부 확인 (MOVING이면 감지 중단) |
+| `/contact_detected` | 출력 | `std_msgs/Bool` | 접촉 감지 시 `true` 발행 |
+| `/contact_status` | 출력 | `std_msgs/String` | `CONTACT_DETECTED` / `CONTACT_RESOLVED` |
+
+### 시뮬레이션 전용
+
 | 토픽 | 타입 | 설명 |
 |------|------|------|
-| `/target_floor` | `std_msgs/Int32` | 목표 층수 입력 (음수 = 지하) |
-| `/robot_status` | `std_msgs/String` | 현재 상태 (MOVING / BUTTON_PRESSED / SUCCESS / FAILED) |
 | `/joint_target` | `sensor_msgs/JointState` | PID 목표 관절 위치 |
 | `/joint_command` | `sensor_msgs/JointState` | Isaac Sim 관절 명령 |
 
 ### 층수 입력 예시
 
 ```bash
-# 3층으로 이동 (지하 1층 → 3층, up_button 자동 선택)
+# 3층으로 이동 (현재 층보다 위면 up_button 자동 선택)
 ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
 
-# 지하 1층으로 복귀 (3층 → 지하 1층, down_button 자동 선택)
+# 지하 1층으로 복귀 (down_button 자동 선택)
 ros2 topic pub --once /target_floor std_msgs/Int32 "{data: -1}"
 ```
 
 층수에 따라 UP/DOWN 버튼이 자동 선택됩니다:
 - `target_floor > current_floor` → `up_button`
 - `target_floor < current_floor` → `down_button`
-- 초기 층수: 지하 1층 (`-1`)
+- 초기 층수: -1 (지하 1층 기준)
 
 ## YOLO 학습 결과
 
