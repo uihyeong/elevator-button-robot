@@ -51,24 +51,24 @@
 | 시뮬레이션 | Isaac Sim 5.1.0 |
 | 언어 | Python 3.10 |
 
-## 주요 흐름
+## 주요 흐름 (통합 노드 기준)
 
 ```
-카메라 영상 수신
+/target_floor 수신 (목표 층수)
     ↓
-버튼 감지 (두 가지 모드)
-    ├─ [UP/DOWN 모드] YOLOv8 → UP 또는 DOWN 버튼 감지
-    └─ [숫자 모드]    YOLO-seg → 버튼 영역 분할 → EasyOCR → 층수 숫자 인식
+[Phase 1 — UP/DOWN]
+YOLOv8 → UP 또는 DOWN 버튼 감지
     ↓
-Depth 이미지로 버튼 3D 좌표 계산
+Depth → TF 변환 → 해석적 IK → 버튼 누르기
     ↓
-TF 변환 (카메라 프레임 → 로봇 베이스 프레임)
+홈 복귀 → 엘리베이터 도착 대기 (5초)
     ↓
-해석적 IK (수식 직접 계산, MoveIt 불필요)
+[Phase 2 — 숫자]
+YOLO-seg → 버튼 영역 분할 → EasyOCR → 목표 층수 매칭
     ↓
-/arm_controller/follow_joint_trajectory 로 직접 전송
+Depth → TF 변환 → 해석적 IK → 버튼 누르기
     ↓
-로봇팔 이동 및 버튼 누르기 → 홈 복귀
+홈 복귀 → 완료
 ```
 
 ## 파일 구조
@@ -77,6 +77,7 @@ TF 변환 (카메라 프레임 → 로봇 베이스 프레임)
 elevator-button-robot/
 ├── nodes/
 │   ├── real_robot/                        # 실제 로봇용
+│   │   ├── real_robot_unified.py          # ★ 통합 노드 (UP/DOWN → 숫자 전체 시퀀스)
 │   │   ├── real_robot_yolo_moveit.py      # YOLO + MoveIt2 IK (UP/DOWN)
 │   │   ├── real_robot_direct_ik.py        # YOLO + 해석적 IK (UP/DOWN, MoveIt 불필요)
 │   │   ├── real_robot_num_ocr_ik.py       # YOLO-seg + EasyOCR + 해석적 IK (숫자 버튼)
@@ -115,6 +116,36 @@ ros2 run tf2_ros static_transform_publisher \
     --roll 0.0 --pitch 0.0 --yaw 0.0 \
     --frame-id link5 --child-frame-id camera_link
 ```
+
+### ★ 방법 D — 통합 노드 (`real_robot_unified.py`) — **권장**
+
+UP/DOWN 버튼 누르기 → 홈 복귀 → 엘리베이터 대기 → 숫자 버튼 누르기를 하나의 노드로 처리합니다. MoveIt2 없이 동작합니다.
+
+```bash
+# 메인 노드
+python3 nodes/real_robot/real_robot_unified.py
+```
+
+층수 입력:
+
+```bash
+ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
+```
+
+상태 전이 흐름:
+
+```
+IDLE
+ → /target_floor 수신
+UPDOWN_READY  : YOLOv8로 UP/DOWN 버튼 인식
+UPDOWN_PRESS  : 해석적 IK → 버튼 누르기
+WAIT          : 홈 복귀 후 엘리베이터 도착 대기 (5초)
+NUMBER_READY  : YOLO-seg + EasyOCR로 숫자 버튼 인식
+NUMBER_PRESS  : 해석적 IK → 버튼 누르기
+DONE          : 홈 복귀 → IDLE
+```
+
+---
 
 ### 방법 A — MoveIt2 IK (`real_robot_yolo_moveit.py`)
 
