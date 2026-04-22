@@ -288,7 +288,7 @@ class NumOCRIKNode(Node):
     # ─── 이미지 처리 ─────────────────────────────────────────────────────────
 
     def image_callback(self, msg: Image):
-        if self.target_floor is None or self.model is None:
+        if self.target_floor is None or self.model is None or self.moving:
             return
 
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
@@ -374,7 +374,7 @@ class NumOCRIKNode(Node):
         self.button_pressed = True
         threading.Thread(
             target=self._press_button,
-            args=(X - BUTTON_OFFSET, Y, Z),
+            args=(X - BUTTON_OFFSET * math.copysign(1.0, X), Y, Z - 0.025),
             daemon=True,
         ).start()
 

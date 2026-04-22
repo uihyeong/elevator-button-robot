@@ -18,6 +18,7 @@
 ## 담당 역할 (로봇팔 시스템)
 
 - **YOLOv8** 으로 UP/DOWN 버튼 실시간 인식
+- **YOLO-seg + EasyOCR** 로 숫자 버튼 인식 (층수 자동 매칭)
 - **D435 RGB-D 카메라** 로 버튼 3D 좌표 추출
 - **MoveIt2 IK** 또는 **해석적 IK** 로 관절 각도 계산 (두 가지 방법 모두 지원)
 - **PID 제어기** 로 관절 위치 피드백 제어 (시뮬레이션)
@@ -45,7 +46,7 @@
 |------|------|
 | 로봇 플랫폼 | OpenMANIPULATOR-X |
 | 카메라 | Intel RealSense D435 |
-| AI/인식 | YOLOv8 (mAP50: 98.7%) |
+| AI/인식 | YOLOv8 (mAP50: 98.7%), YOLO-seg, EasyOCR |
 | 로봇 미들웨어 | ROS2 Humble, MoveIt2 |
 | 시뮬레이션 | Isaac Sim 5.1.0 |
 | 언어 | Python 3.10 |
@@ -55,17 +56,19 @@
 ```
 카메라 영상 수신
     ↓
-YOLOv8 버튼 감지 (UP / DOWN)
+버튼 감지 (두 가지 모드)
+    ├─ [UP/DOWN 모드] YOLOv8 → UP 또는 DOWN 버튼 감지
+    └─ [숫자 모드]    YOLO-seg → 버튼 영역 분할 → EasyOCR → 층수 숫자 인식
     ↓
 Depth 이미지로 버튼 3D 좌표 계산
     ↓
 TF 변환 (카메라 프레임 → 로봇 베이스 프레임)
     ↓
-IK로 관절 각도 계산
-    ├─ [방법 A] MoveIt2 IK  (/compute_ik 서비스)
-    └─ [방법 B] 해석적 IK   (수식 직접 계산, MoveIt 불필요)
+해석적 IK (수식 직접 계산, MoveIt 불필요)
     ↓
-로봇팔 이동 및 버튼 누르기
+/arm_controller/follow_joint_trajectory 로 직접 전송
+    ↓
+로봇팔 이동 및 버튼 누르기 → 홈 복귀
 ```
 
 ## 파일 구조
@@ -74,21 +77,24 @@ IK로 관절 각도 계산
 elevator-button-robot/
 ├── nodes/
 │   ├── real_robot/                        # 실제 로봇용
-│   │   ├── real_robot_yolo_moveit.py      # [방법 A] YOLO + MoveIt2 IK
-│   │   ├── real_robot_direct_ik.py        # [방법 B] YOLO + 해석적 IK (MoveIt 불필요)
-│   │   └── real_robot_cartesian.py        # Cartesian 경로 실험 노드
-│   └── simulation/                        # Isaac Sim 시뮬레이션용
-│       ├── isaac_sim_yolo_moveit.py        # [방법 A] YOLO + MoveIt2 IK
-│       ├── isaac_sim_direct_ik.py          # [방법 B] YOLO + 해석적 IK (MoveIt 불필요)
-│       ├── pid_joint_controller.py         # PID 관절 제어기 (50Hz, 방법 A용)
-│       ├── isaac_sim_yolo_depth.py         # 뎁스 인식 테스트
-│       ├── isaac_sim_yolo_tf.py            # TF 변환 테스트
-│       └── isaac_sim_yolo_test.py          # YOLO 인식 테스트
+│   │   ├── real_robot_yolo_moveit.py      # YOLO + MoveIt2 IK (UP/DOWN)
+│   │   ├── real_robot_direct_ik.py        # YOLO + 해석적 IK (UP/DOWN, MoveIt 불필요)
+│   │   ├── real_robot_num_ocr_ik.py       # YOLO-seg + EasyOCR + 해석적 IK (숫자 버튼)
+│   │   └── real_robot_num_ocr.py          # OCR 인식 테스트 노드
+│   ├── simulation/                        # Isaac Sim 시뮬레이션용
+│   │   ├── isaac_sim_yolo_moveit.py        # YOLO + MoveIt2 IK
+│   │   ├── isaac_sim_direct_ik.py          # YOLO + 해석적 IK (MoveIt 불필요)
+│   │   ├── pid_joint_controller.py         # PID 관절 제어기 (50Hz)
+│   │   ├── isaac_sim_yolo_depth.py         # 뎁스 인식 테스트
+│   │   ├── isaac_sim_yolo_tf.py            # TF 변환 테스트
+│   │   └── isaac_sim_yolo_test.py          # YOLO 인식 테스트
+│   └── test/
+│       └── webcam_ocr_test.py             # 웹캠 OCR 테스트
 ├── ros2_packages/
 │   ├── isaac_moveit_bridge/               # Isaac Sim ↔ MoveIt2 브릿지 패키지
 │   └── open_manipulator_patches/          # open_manipulator 커스텀 수정 파일
 └── yolo/
-    ├── weights/best.pt                    # 학습된 YOLO 모델
+    ├── weights/best.pt                    # UP/DOWN 인식 YOLO 모델
     └── dataset/                           # 학습 데이터셋
 ```
 
@@ -137,6 +143,26 @@ python3 nodes/real_robot/real_robot_direct_ik.py
 ros2 topic pub --once /target_point geometry_msgs/PointStamped \
     '{header: {frame_id: "world"}, point: {x: 0.25, y: 0.0, z: 0.2}}'
 ```
+
+### 방법 C — 숫자 버튼 인식 (`real_robot_num_ocr_ik.py`)
+
+YOLO-seg로 버튼 영역을 분할하고 EasyOCR로 숫자를 읽어 목표 층수와 매칭합니다. MoveIt2 없이 동작합니다.
+
+```bash
+# 메인 노드 (MoveIt2 실행 불필요)
+python3 nodes/real_robot/real_robot_num_ocr_ik.py
+```
+
+층수 입력:
+
+```bash
+ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
+```
+
+> **참고**: `numpy < 2.0.0` 필요. cv_bridge가 NumPy 1.x 기준으로 컴파일되어 있습니다.
+> ```bash
+> pip install "numpy<2.0.0" --user
+> ```
 
 ### 실제 로봇 주요 설정
 
