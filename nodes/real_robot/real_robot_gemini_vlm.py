@@ -66,7 +66,7 @@ L3    = 0.124
 L4    = 0.126
 
 JOINT_LIMITS = [
-    (-math.pi, math.pi),
+    (-math.pi - 0.5, math.pi),  # 하한 확장: 홈(-π)에서 CCW 이동 허용
     (-1.5,     1.5),
     (-1.5,     1.4),
     (-1.7,     1.97),
@@ -97,10 +97,6 @@ DONE          = 'DONE'
 
 def solve_ik(X: float, Y: float, Z: float):
     j1 = math.atan2(Y, X)
-    # atan2 returns +π for X<0,Y≈0; normalize to -π side so shortest path
-    # from HOME (-π) stays within joint limits instead of wrapping out of range
-    if j1 > math.pi / 2:
-        j1 -= 2 * math.pi
     r  = math.sqrt(X**2 + Y**2)
     wr = r - L4
     wz = Z
