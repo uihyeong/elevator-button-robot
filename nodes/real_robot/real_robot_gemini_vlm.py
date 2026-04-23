@@ -442,7 +442,7 @@ class GeminiButtonNode(Node):
         self.state = UPDOWN_PRESS
         threading.Thread(
             target=self._press_button,
-            args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.04,
+            args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.03,
                   det['label']),
             daemon=True,
         ).start()
@@ -489,7 +489,7 @@ class GeminiButtonNode(Node):
         self.state = NUMBER_PRESS
         threading.Thread(
             target=self._press_button,
-            args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.04,
+            args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.03,
                   f'{det["label"]}층'),
             daemon=True,
         ).start()
