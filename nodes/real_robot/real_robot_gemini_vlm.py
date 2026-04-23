@@ -79,7 +79,7 @@ MIN_DURATION = 2.0    # 초
 
 # ─── 인식 파라미터 ────────────────────────────────────────────────────────────
 
-BUTTON_OFFSET_X   = 0.05
+BUTTON_OFFSET_X   = 0.075
 ELEVATOR_WAIT_SEC = 5.0
 
 # ─── 상태 상수 ────────────────────────────────────────────────────────────────
@@ -97,6 +97,10 @@ DONE          = 'DONE'
 
 def solve_ik(X: float, Y: float, Z: float):
     j1 = math.atan2(Y, X)
+    # atan2 returns +π for X<0,Y≈0; normalize to -π side so shortest path
+    # from HOME (-π) stays within joint limits instead of wrapping out of range
+    if j1 > math.pi / 2:
+        j1 -= 2 * math.pi
     r  = math.sqrt(X**2 + Y**2)
     wr = r - L4
     wz = Z
@@ -133,6 +137,11 @@ def _shortest_path(target: float, current: float) -> float:
 
 def make_trajectory(target_joints: list, current_joints: list, speed: float = MOVE_SPEED):
     target_joints = [_shortest_path(t, c) for t, c in zip(target_joints, current_joints)]
+    # joint limit 초과 방지 (±π 경계 근처에서 발생)
+    target_joints = [
+        max(lo, min(hi, t))
+        for t, (lo, hi) in zip(target_joints, JOINT_LIMITS)
+    ]
     max_disp = max(abs(t - c) for t, c in zip(target_joints, current_joints))
     duration = max(max_disp / speed, MIN_DURATION)
 
@@ -315,6 +324,9 @@ class GeminiButtonNode(Node):
         floor = msg.data
         if self.state not in (IDLE, DONE):
             self.get_logger().warn(f'작업 중 ({self.state}). /target_floor 무시.')
+            return
+        if floor == self.current_floor:
+            self.get_logger().warn(f'이미 {floor}층입니다. 무시.')
             return
         self.target_floor    = floor
         self.target_button   = 'UP' if floor > self.current_floor else 'DOWN'
