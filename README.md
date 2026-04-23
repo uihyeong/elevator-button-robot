@@ -19,6 +19,7 @@
 
 - **YOLOv8** 으로 UP/DOWN 버튼 실시간 인식
 - **YOLO-seg + EasyOCR** 로 숫자 버튼 인식 (층수 자동 매칭)
+- **Gemini VLM** 으로 버튼 인식 (YOLO + EasyOCR 대체, zero-shot)
 - **D435 RGB-D 카메라** 로 버튼 3D 좌표 추출
 - **MoveIt2 IK** 또는 **해석적 IK** 로 관절 각도 계산 (두 가지 방법 모두 지원)
 - **PID 제어기** 로 관절 위치 피드백 제어 (시뮬레이션)
@@ -46,7 +47,7 @@
 |------|------|
 | 로봇 플랫폼 | OpenMANIPULATOR-X |
 | 카메라 | Intel RealSense D435 |
-| AI/인식 | YOLOv8 (mAP50: 98.7%), YOLO-seg, EasyOCR |
+| AI/인식 | YOLOv8 (mAP50: 98.7%), YOLO-seg, EasyOCR, Gemini VLM |
 | 로봇 미들웨어 | ROS2 Humble, MoveIt2 |
 | 시뮬레이션 | Isaac Sim 5.1.0 |
 | 언어 | Python 3.10 |
@@ -77,7 +78,9 @@ Depth → TF 변환 → 해석적 IK → 버튼 누르기
 elevator-button-robot/
 ├── nodes/
 │   ├── real_robot/                        # 실제 로봇용
-│   │   ├── real_robot_unified.py          # ★ 통합 노드 (UP/DOWN → 숫자 전체 시퀀스)
+│   │   ├── real_robot_unified.py          # ★ 통합 노드 YOLO (UP/DOWN → 숫자 전체 시퀀스)
+│   │   ├── real_robot_gemini_vlm.py       # ★ 통합 노드 Gemini VLM (YOLO 대체, zero-shot)
+│   │   ├── test_gemini_detection.py       # Gemini 인식 단독 테스트 (ROS2 불필요)
 │   │   ├── contact_detector.py            # 정지 중 접촉 감지 → 움츠리기 (병렬 실행)
 │   │   ├── real_robot_direct_ik.py        # YOLO + 해석적 IK (UP/DOWN 단독)
 │   │   ├── real_robot_num_ocr_ik.py       # YOLO-seg + EasyOCR + 해석적 IK (숫자 단독)
@@ -115,33 +118,62 @@ ros2 run tf2_ros static_transform_publisher \
     --frame-id link5 --child-frame-id camera_link
 ```
 
-### ★ 방법 D — 통합 노드 (`real_robot_unified.py`) — **권장**
+### ★ 방법 D — 통합 노드 YOLO (`real_robot_unified.py`)
 
-UP/DOWN 버튼 누르기 → 홈 복귀 → 엘리베이터 대기 → 숫자 버튼 누르기를 하나의 노드로 처리합니다. MoveIt2 없이 동작합니다.
+YOLOv8 + YOLO-seg + EasyOCR로 버튼을 인식합니다. MoveIt2 없이 동작합니다.
 
 ```bash
-# 메인 노드
 python3 nodes/real_robot/real_robot_unified.py
-```
-
-층수 입력:
-
-```bash
 ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
 ```
 
-상태 전이 흐름:
+---
+
+### ★ 방법 E — 통합 노드 Gemini VLM (`real_robot_gemini_vlm.py`) — **권장 (학습 불필요)**
+
+YOLO/EasyOCR 없이 Gemini Vision API 단일 호출로 UP/DOWN + 숫자 버튼을 인식합니다.
+모델 학습 없이 zero-shot으로 동작합니다.
+
+```bash
+# 사전 준비
+pip install google-genai
+export GEMINI_API_KEY="your_key"   # aistudio.google.com/apikey
+
+# 메인 노드
+GEMINI_API_KEY="your_key" python3 nodes/real_robot/real_robot_gemini_vlm.py
+ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
+```
+
+상태 전이 흐름 (YOLO 노드와 동일):
 
 ```
 IDLE
  → /target_floor 수신
-UPDOWN_READY  : YOLOv8로 UP/DOWN 버튼 인식
+UPDOWN_READY  : Gemini VLM → UP/DOWN 버튼 인식 (1회 호출)
 UPDOWN_PRESS  : 해석적 IK → 버튼 누르기
 WAIT          : 홈 복귀 후 엘리베이터 도착 대기 (5초)
-NUMBER_READY  : YOLO-seg + EasyOCR로 숫자 버튼 인식
+NUMBER_READY  : Gemini VLM → 숫자 버튼 인식 (1회 호출)
 NUMBER_PRESS  : 해석적 IK → 버튼 누르기
 DONE          : 홈 복귀 → IDLE
 ```
+
+#### Gemini 인식 단독 테스트 (`test_gemini_detection.py`)
+
+ROS2·로봇 없이 카메라 또는 이미지 파일로 인식 결과만 확인할 수 있습니다.
+
+```bash
+# 이미지 파일로 테스트
+GEMINI_API_KEY="your_key" python3 nodes/real_robot/test_gemini_detection.py --image button.jpg
+
+# 카메라로 테스트 (숫자 버튼 모드)
+GEMINI_API_KEY="your_key" python3 nodes/real_robot/test_gemini_detection.py --mode number --floor 3
+```
+
+| 키 | 동작 |
+|---|---|
+| `SPACE` | 즉시 Gemini 호출 |
+| `s` | 현재 프레임 저장 |
+| `q` | 종료 |
 
 ---
 
@@ -205,7 +237,7 @@ python3 nodes/real_robot/contact_detector.py
 | 카메라 토픽 | `/camera/camera/color/image_raw` | 시뮬레이션과 네임스페이스 다름 |
 | 뎁스 인코딩 | `16UC1` → `/1000` | mm → m 변환 |
 | 카메라 TF | `link5 → camera_link` | x=0.12, y=0.01, z=0.062 |
-| 버튼 오프셋 | `X - 0.075m` | 버튼 표면 7.5cm 앞에서 멈춤 |
+| 버튼 오프셋 | `X - 0.05m` | 버튼 표면 5cm 앞에서 멈춤 |
 | 베이스 프레임 | `world` | 시뮬레이션은 `open_manipulator_x` |
 
 ## 실행 방법 (시뮬레이션)
