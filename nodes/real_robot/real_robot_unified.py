@@ -353,7 +353,7 @@ class UnifiedButtonNode(Node):
                 self.get_logger().info(f'{cls} 감지! IK 시작')
                 threading.Thread(
                     target=self._press_button,
-                    args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.025, cls),
+                    args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.04, cls),
                     daemon=True,
                 ).start()
 
@@ -464,7 +464,7 @@ class UnifiedButtonNode(Node):
             f'{self.target_floor}층 버튼 감지! 위치: ({X:.3f}, {Y:.3f}, {Z:.3f})')
         threading.Thread(
             target=self._press_button,
-            args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.025,
+            args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.04,
                   f'{self.target_floor}층'),
             daemon=True,
         ).start()

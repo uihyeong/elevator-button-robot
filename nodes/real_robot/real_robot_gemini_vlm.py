@@ -66,7 +66,7 @@ L3    = 0.124
 L4    = 0.126
 
 JOINT_LIMITS = [
-    (-math.pi - 0.5, math.pi),  # 하한 확장: 홈(-π)에서 CCW 이동 허용
+    (-math.pi, math.pi),
     (-1.5,     1.5),
     (-1.5,     1.4),
     (-1.7,     1.97),
@@ -133,11 +133,6 @@ def _shortest_path(target: float, current: float) -> float:
 
 def make_trajectory(target_joints: list, current_joints: list, speed: float = MOVE_SPEED):
     target_joints = [_shortest_path(t, c) for t, c in zip(target_joints, current_joints)]
-    # joint limit 초과 방지 (±π 경계 근처에서 발생)
-    target_joints = [
-        max(lo, min(hi, t))
-        for t, (lo, hi) in zip(target_joints, JOINT_LIMITS)
-    ]
     max_disp = max(abs(t - c) for t, c in zip(target_joints, current_joints))
     duration = max(max_disp / speed, MIN_DURATION)
 
@@ -321,9 +316,6 @@ class GeminiButtonNode(Node):
         if self.state not in (IDLE, DONE):
             self.get_logger().warn(f'작업 중 ({self.state}). /target_floor 무시.')
             return
-        if floor == self.current_floor:
-            self.get_logger().warn(f'이미 {floor}층입니다. 무시.')
-            return
         self.target_floor    = floor
         self.target_button   = 'UP' if floor > self.current_floor else 'DOWN'
         self._last_detection = None
@@ -450,7 +442,7 @@ class GeminiButtonNode(Node):
         self.state = UPDOWN_PRESS
         threading.Thread(
             target=self._press_button,
-            args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.025,
+            args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.04,
                   det['label']),
             daemon=True,
         ).start()
@@ -497,7 +489,7 @@ class GeminiButtonNode(Node):
         self.state = NUMBER_PRESS
         threading.Thread(
             target=self._press_button,
-            args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.025,
+            args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.04,
                   f'{det["label"]}층'),
             daemon=True,
         ).start()
