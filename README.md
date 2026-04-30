@@ -109,15 +109,38 @@ pip install -r requirements.txt
 ### ROS2 패키지
 
 ```bash
-# open_manipulator (하드웨어 컨트롤러)
-sudo apt install ros-humble-open-manipulator-x
+# 의존 패키지 설치
+sudo apt install \
+  ros-humble-ros2-control \
+  ros-humble-moveit* \
+  ros-humble-gazebo-ros2-control \
+  ros-humble-ros2-controllers \
+  ros-humble-controller-manager \
+  ros-humble-position-controllers \
+  ros-humble-joint-state-broadcaster \
+  ros-humble-joint-trajectory-controller \
+  ros-humble-gripper-controllers \
+  ros-humble-hardware-interface \
+  ros-humble-xacro
+
+# open_manipulator 소스 빌드
+mkdir -p ~/colcon_ws/src && cd ~/colcon_ws/src
+git clone -b humble https://github.com/ROBOTIS-GIT/DynamixelSDK.git
+git clone -b humble https://github.com/ROBOTIS-GIT/open_manipulator.git
+git clone -b humble https://github.com/ROBOTIS-GIT/dynamixel_hardware_interface.git
+git clone -b humble https://github.com/ROBOTIS-GIT/dynamixel_interfaces.git
+cd ~/colcon_ws && colcon build --symlink-install
+
+# ROS 환경 설정
+echo 'source /usr/share/gazebo/setup.sh' >> ~/.bashrc
+echo 'source ~/colcon_ws/install/local_setup.bash' >> ~/.bashrc
+source ~/.bashrc
 
 # RealSense 드라이버
 sudo apt install ros-humble-realsense2-camera
 ```
 
-OpenMANIPULATOR-X 전체 설치 가이드 (ROS2 패키지 빌드, U2D2 설정 등):  
-→ [ROBOTIS e-Manual — OpenMANIPULATOR-X Quick Start Guide](https://emanual.robotis.com/docs/en/platform/openmanipulator_x/quick_start_guide/)
+> 전체 설치 가이드 (U2D2 통신 설정 등): [ROBOTIS e-Manual — OpenMANIPULATOR-X Quick Start Guide](https://emanual.robotis.com/docs/en/platform/openmanipulator_x/quick_start_guide/)
 
 > **주의**: `numpy < 2.0.0` 필요. cv_bridge가 NumPy 1.x 기준으로 컴파일되어 있습니다.
 
