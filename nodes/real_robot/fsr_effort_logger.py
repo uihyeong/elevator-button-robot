@@ -98,23 +98,24 @@ def serial_ros_loop(port: str):
                     label   = int(parts[2])
                 except ValueError:
                     continue
+
+                pos, vel, eff = node.snapshot()
+                t_ms = int(time.time() * 1000) - start_ms
+
+                row = [t_ms,
+                       round(pos[0], 4), round(pos[1], 4), round(pos[2], 4), round(pos[3], 4),
+                       round(vel[0], 4), round(vel[1], 4), round(vel[2], 4), round(vel[3], 4),
+                       round(eff[0], 2), round(eff[1], 2), round(eff[2], 2), round(eff[3], 2),
+                       fsr_val, label]
+                rows.append(row)
+
+                marker = '  ◀ TAP' if label else ''
+                print(f"{t_ms:>8}  {fsr_val:>5}  {label:>5}  "
+                      f"{eff[0]:>7.1f}  {eff[1]:>7.1f}  {eff[2]:>7.1f}  {eff[3]:>7.1f}{marker}",
+                      flush=True)
+
         except Exception as e:
             print(f'[serial_reader 오류] {e}')
-
-            pos, vel, eff = node.snapshot()
-            t_ms = int(time.time() * 1000) - start_ms
-
-            row = [t_ms,
-                   round(pos[0], 4), round(pos[1], 4), round(pos[2], 4), round(pos[3], 4),
-                   round(vel[0], 4), round(vel[1], 4), round(vel[2], 4), round(vel[3], 4),
-                   round(eff[0], 2), round(eff[1], 2), round(eff[2], 2), round(eff[3], 2),
-                   fsr_val, label]
-            rows.append(row)
-
-            marker = '  ◀ TAP' if label else ''
-            print(f"{t_ms:>8}  {fsr_val:>5}  {label:>5}  "
-                  f"{eff[0]:>7.1f}  {eff[1]:>7.1f}  {eff[2]:>7.1f}  {eff[3]:>7.1f}{marker}",
-                  flush=True)
 
     # 시리얼은 별도 스레드, ROS2 spin은 메인 스레드
     threading.Thread(target=serial_reader, daemon=True).start()
