@@ -19,6 +19,7 @@ ELEVATOR_WAIT_SEC 초 대기하고 목표 층 숫자 버튼을 누릅니다.
 """
 
 import math
+import os
 import threading
 import time
 
@@ -52,8 +53,9 @@ except ImportError:
 
 # ─── 모델 경로 ────────────────────────────────────────────────────────────────
 
-UPDOWN_MODEL_PATH = '/home/sejong/yolo_dataset_real_v2/runs/train_real_v2/weights/best.pt'
-NUM_MODEL_PATH    = '/home/sejong/yolo_dataset_num/runs/segment/train/weights/best.pt'
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+UPDOWN_MODEL_PATH = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best.pt')
+NUM_MODEL_PATH    = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_num.pt')
 
 # ─── OpenMANIPULATOR-X 링크 파라미터 ─────────────────────────────────────────
 
