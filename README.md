@@ -116,6 +116,9 @@ sudo apt install ros-humble-open-manipulator-x
 sudo apt install ros-humble-realsense2-camera
 ```
 
+OpenMANIPULATOR-X 전체 설치 가이드 (ROS2 패키지 빌드, U2D2 설정 등):  
+→ [ROBOTIS e-Manual — OpenMANIPULATOR-X Quick Start Guide](https://emanual.robotis.com/docs/en/platform/openmanipulator_x/quick_start_guide/)
+
 > **주의**: `numpy < 2.0.0` 필요. cv_bridge가 NumPy 1.x 기준으로 컴파일되어 있습니다.
 
 ---
