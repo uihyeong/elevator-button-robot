@@ -75,25 +75,29 @@ def serial_ros_loop(port: str):
         return
 
     def serial_reader():
-        time.sleep(2.0)
-        ser.readline()  # 헤더 줄 버리기
-        print('로깅 시작! FSR로 관절을 탭하세요. Ctrl+C로 종료.\n')
-        print(f"{'time_ms':>8}  {'fsr':>5}  {'label':>5}  "
-              f"{'e1':>7}  {'e2':>7}  {'e3':>7}  {'e4':>7}")
-        print('-' * 60)
+        try:
+            time.sleep(2.0)
+            ser.readline()  # 헤더 버리기
+            print('로깅 시작! FSR로 관절을 탭하세요. Ctrl+C로 종료.\n', flush=True)
+            print(f"{'time_ms':>8}  {'fsr':>5}  {'label':>5}  "
+                  f"{'e1':>7}  {'e2':>7}  {'e3':>7}  {'e4':>7}", flush=True)
+            print('-' * 60, flush=True)
 
-        while not stop_flag.is_set():
-            line = ser.readline().decode('utf-8', errors='ignore').strip()
-            if not line:
-                continue
-            parts = line.split(',')
-            if len(parts) != 3:
-                continue
-            try:
-                fsr_val = int(parts[1])
-                label   = int(parts[2])
-            except ValueError:
-                continue
+            while not stop_flag.is_set():
+                raw = ser.readline()
+                line = raw.decode('utf-8', errors='ignore').strip()
+                if not line:
+                    continue
+                parts = line.split(',')
+                if len(parts) != 3:
+                    continue
+                try:
+                    fsr_val = int(parts[1])
+                    label   = int(parts[2])
+                except ValueError:
+                    continue
+        except Exception as e:
+            print(f'[serial_reader 오류] {e}')
 
             pos, vel, eff = node.snapshot()
             t_ms = int(time.time() * 1000) - start_ms
@@ -107,7 +111,8 @@ def serial_ros_loop(port: str):
 
             marker = '  ◀ TAP' if label else ''
             print(f"{t_ms:>8}  {fsr_val:>5}  {label:>5}  "
-                  f"{eff[0]:>7.1f}  {eff[1]:>7.1f}  {eff[2]:>7.1f}  {eff[3]:>7.1f}{marker}")
+                  f"{eff[0]:>7.1f}  {eff[1]:>7.1f}  {eff[2]:>7.1f}  {eff[3]:>7.1f}{marker}",
+                  flush=True)
 
     # 시리얼은 별도 스레드, ROS2 spin은 메인 스레드
     threading.Thread(target=serial_reader, daemon=True).start()
