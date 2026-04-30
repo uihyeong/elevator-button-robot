@@ -85,6 +85,8 @@ def serial_ros_loop(port: str):
 
             while not stop_flag.is_set():
                 raw = ser.readline()
+                if not raw:
+                    continue
                 line = raw.decode('utf-8', errors='ignore').strip()
                 if not line:
                     continue
@@ -125,7 +127,10 @@ def serial_ros_loop(port: str):
         stop_flag.set()
         ser.close()
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
         with open(OUTPUT_FILE, 'w', newline='') as f:
             writer = csv.writer(f)
