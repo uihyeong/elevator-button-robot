@@ -2,7 +2,13 @@
 
 [ROBOTIS open_manipulator](https://github.com/ROBOTIS-GIT/open_manipulator) 패키지에 추가/수정한 파일들입니다.
 
-`~/colcon_ws/src/open_manipulator/` 아래 동일한 경로에 복사하면 됩니다.
+## 용도별 필요 패치
+
+| 사용 목적 | 필요한 패치 |
+|---|---|
+| `real_robot_unified.py` (권장) | 패치 불필요 |
+| MoveIt2 노드 (`real_robot_yolo_moveit.py`) | `kinematics.yaml` 필수 |
+| Isaac Sim 시뮬레이션 | `isaac_sim_tf.launch.py` 필수 |
 
 ## 파일 목록
 
@@ -17,23 +23,24 @@
 ## 적용 방법
 
 ```bash
-cd ~/colcon_ws/src/open_manipulator
+cd ~/elevator-button-robot/ros2_packages/open_manipulator_patches
 
-# launch 파일
-cp open_manipulator_patches/open_manipulator_x_description/launch/isaac_sim_tf.launch.py \
-   open_manipulator_x_description/launch/
+# MoveIt2 사용 시
+cp open_manipulator_x_moveit_config/config/kinematics.yaml \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_moveit_config/config/kinematics.yaml
 
-# URDF 파일
-cp open_manipulator_patches/open_manipulator_x_description/urdf/open_manipulator_x_with_camera.urdf.xacro \
-   open_manipulator_x_description/urdf/
-cp open_manipulator_patches/open_manipulator_x_description/urdf/open_manipulator_x_with_camera.urdf \
-   open_manipulator_x_description/urdf/
-cp open_manipulator_patches/open_manipulator_x_description/urdf/stand_rs-d435_s01.stl \
-   open_manipulator_x_description/urdf/
+# Isaac Sim 시뮬레이션 사용 시
+cp open_manipulator_x_description/launch/isaac_sim_tf.launch.py \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/launch/
+cp open_manipulator_x_description/urdf/open_manipulator_x_with_camera.urdf.xacro \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/urdf/
+cp open_manipulator_x_description/urdf/open_manipulator_x_with_camera.urdf \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/urdf/
+cp open_manipulator_x_description/urdf/stand_rs-d435_s01.stl \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/urdf/
 
-# kinematics 설정 (기존 파일 덮어쓰기)
-cp open_manipulator_patches/open_manipulator_x_moveit_config/config/kinematics.yaml \
-   open_manipulator_x_moveit_config/config/kinematics.yaml
+# 패치 적용 후 재빌드
+cd ~/colcon_ws && colcon build --symlink-install
 ```
 
 ## kinematics.yaml 변경 내용
