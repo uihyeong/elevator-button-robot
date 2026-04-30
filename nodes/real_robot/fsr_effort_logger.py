@@ -31,7 +31,7 @@ from sensor_msgs.msg import JointState
 import serial
 
 JOINT_NAMES    = ['joint1', 'joint2', 'joint3', 'joint4']
-FSR_THRESHOLD  = 70
+FSR_THRESHOLD  = 20
 SERIAL_BAUD    = 9600
 OUTPUT_FILE    = os.path.join(os.path.dirname(__file__), 'fsr_effort_log.csv')
 
