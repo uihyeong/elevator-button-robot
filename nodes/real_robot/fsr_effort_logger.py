@@ -62,10 +62,10 @@ class FsrEffortLogger(Node):
 def serial_ros_loop(port: str):
     rclpy.init()
     node = FsrEffortLogger()
-    threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
 
-    rows = []
-    start_ms = int(time.time() * 1000)
+    rows      = []
+    start_ms  = int(time.time() * 1000)
+    stop_flag = threading.Event()
 
     print(f'포트 {port} 연결 중...')
     try:
@@ -74,16 +74,15 @@ def serial_ros_loop(port: str):
         print(f'시리얼 연결 실패: {e}')
         return
 
-    time.sleep(2.0)
-    ser.readline()  # 헤더 줄 버리기
+    def serial_reader():
+        time.sleep(2.0)
+        ser.readline()  # 헤더 줄 버리기
+        print('로깅 시작! FSR로 관절을 탭하세요. Ctrl+C로 종료.\n')
+        print(f"{'time_ms':>8}  {'fsr':>5}  {'label':>5}  "
+              f"{'e1':>7}  {'e2':>7}  {'e3':>7}  {'e4':>7}")
+        print('-' * 60)
 
-    print('로깅 시작! FSR로 관절을 탭하세요. Ctrl+C로 종료.\n')
-    print(f"{'time_ms':>8}  {'fsr':>5}  {'label':>5}  "
-          f"{'e1':>7}  {'e2':>7}  {'e3':>7}  {'e4':>7}")
-    print('-' * 60)
-
-    try:
-        while True:
+        while not stop_flag.is_set():
             line = ser.readline().decode('utf-8', errors='ignore').strip()
             if not line:
                 continue
@@ -103,17 +102,22 @@ def serial_ros_loop(port: str):
                    round(pos[0], 4), round(pos[1], 4), round(pos[2], 4), round(pos[3], 4),
                    round(vel[0], 4), round(vel[1], 4), round(vel[2], 4), round(vel[3], 4),
                    round(eff[0], 2), round(eff[1], 2), round(eff[2], 2), round(eff[3], 2),
-                   fsr_val,
-                   label]
+                   fsr_val, label]
             rows.append(row)
 
             marker = '  ◀ TAP' if label else ''
             print(f"{t_ms:>8}  {fsr_val:>5}  {label:>5}  "
                   f"{eff[0]:>7.1f}  {eff[1]:>7.1f}  {eff[2]:>7.1f}  {eff[3]:>7.1f}{marker}")
 
+    # 시리얼은 별도 스레드, ROS2 spin은 메인 스레드
+    threading.Thread(target=serial_reader, daemon=True).start()
+
+    try:
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
+        stop_flag.set()
         ser.close()
         node.destroy_node()
         rclpy.shutdown()
