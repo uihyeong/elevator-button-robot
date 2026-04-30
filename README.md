@@ -92,13 +92,14 @@ IDLE → UPDOWN_READY → UPDOWN_PRESS → WAIT → NUMBER_READY → NUMBER_PRES
 
 ### 요구 사항
 
-- Ubuntu 22.04
-- ROS2 Humble
+- Ubuntu 22.04 + ROS2 Humble
 - Python 3.10
 - OpenMANIPULATOR-X + U2D2 (실제 로봇)
 - Intel RealSense D435 (실제 로봇)
 
-### Python 패키지
+---
+
+### 1. 이 레포 클론 (버튼 인식·IK 노드)
 
 ```bash
 git clone https://github.com/uihyeong/elevator-button-robot.git
@@ -106,7 +107,11 @@ cd elevator-button-robot
 pip install -r requirements.txt
 ```
 
-### ROS2 패키지
+> **주의**: `numpy < 2.0.0` 필요. cv_bridge가 NumPy 1.x 기준으로 컴파일되어 있습니다.
+
+---
+
+### 2. colcon_ws — ROS2 하드웨어 패키지 빌드
 
 ```bash
 # 의존 패키지 설치
@@ -142,7 +147,38 @@ sudo apt install ros-humble-realsense2-camera
 
 > 전체 설치 가이드 (U2D2 통신 설정 등): [ROBOTIS e-Manual — OpenMANIPULATOR-X Quick Start Guide](https://emanual.robotis.com/docs/en/platform/openmanipulator_x/quick_start_guide/)
 
-> **주의**: `numpy < 2.0.0` 필요. cv_bridge가 NumPy 1.x 기준으로 컴파일되어 있습니다.
+---
+
+### 3. open_manipulator_patches 적용 (선택)
+
+이 레포의 `ros2_packages/open_manipulator_patches/` 아래 파일을 `colcon_ws`에 복사합니다.
+
+| 사용 목적 | 필요한 패치 |
+|---|---|
+| `real_robot_unified.py` (권장) | 패치 불필요 |
+| MoveIt2 노드 (`real_robot_yolo_moveit.py`) | `kinematics.yaml` 필수 |
+| Isaac Sim 시뮬레이션 | `isaac_sim_tf.launch.py` 필수 |
+
+```bash
+cd ~/elevator-button-robot/ros2_packages/open_manipulator_patches
+
+# MoveIt2 사용 시
+cp open_manipulator_x_moveit_config/config/kinematics.yaml \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_moveit_config/config/kinematics.yaml
+
+# Isaac Sim 시뮬레이션 사용 시
+cp open_manipulator_x_description/launch/isaac_sim_tf.launch.py \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/launch/
+cp open_manipulator_x_description/urdf/open_manipulator_x_with_camera.urdf.xacro \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/urdf/
+cp open_manipulator_x_description/urdf/open_manipulator_x_with_camera.urdf \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/urdf/
+cp open_manipulator_x_description/urdf/stand_rs-d435_s01.stl \
+   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/urdf/
+
+# 패치 적용 후 재빌드
+cd ~/colcon_ws && colcon build --symlink-install
+```
 
 ---
 
