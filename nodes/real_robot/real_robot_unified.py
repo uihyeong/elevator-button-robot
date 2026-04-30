@@ -82,7 +82,10 @@ NUM_CONF_MIN      = 0.5    # 숫자 박스 신뢰도 기준
 NUM_PRESS_CONF    = 0.7    # 숫자 버튼 누르기 신뢰도 기준
 OCR_INTERVAL      = 5      # 매 N프레임마다 OCR 실행
 BUTTON_OFFSET_X   = 0.075  # 버튼 표면 앞 정지 거리 (m)
-ELEVATOR_WAIT_SEC = 5.0    # UP/DOWN 누른 후 엘리베이터 도착 대기 (초)
+ELEVATOR_WAIT_TIMEOUT  = 60.0   # 버튼 소등 감지 최대 대기 시간 (초)
+UNLIT_CHECK_INTERVAL   = 0.5    # 소등 확인 폴링 간격 (초)
+MAX_FAIL          = 3      # 연속 실패 허용 횟수 (초과 시 NEED_REPOSITION → IDLE)
+LIT_GREEN_RATIO   = 0.10   # 점등 판정 green 픽셀 비율 기준
 
 # ─── 상태 상수 ────────────────────────────────────────────────────────────────
 
@@ -188,6 +191,14 @@ class UnifiedButtonNode(Node):
         self.ocr_cache   = {}
         self.frame_count = 0
 
+        # 연속 실패 카운터
+        self._fail_updown = 0
+        self._fail_number = 0
+
+        # 점등 확인용
+        self.latest_frame      = None
+        self._last_updown_bbox = None
+
         # TF
         self.tf_buffer   = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -285,6 +296,7 @@ class UnifiedButtonNode(Node):
             return
 
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+        self.latest_frame = frame.copy()  # 점등 확인용 (GIL 보장 atomic 대입)
         with self.lock:
             depth = self.depth_image.copy() if self.depth_image is not None else None
 
@@ -349,6 +361,7 @@ class UnifiedButtonNode(Node):
                     self.get_logger().warn(f'TF 변환 실패: {e}')
                     continue
 
+                self._last_updown_bbox = (x1, y1, x2, y2)
                 self.state = UPDOWN_PRESS
                 self.get_logger().info(f'{cls} 감지! IK 시작')
                 threading.Thread(
@@ -471,17 +484,84 @@ class UnifiedButtonNode(Node):
 
     # ─── 공통 IK + 이동 ──────────────────────────────────────────────────────
 
+    def _on_press_fail(self, phase_updown: bool):
+        """실패 카운터 증가. MAX_FAIL 초과 시 NEED_REPOSITION 발행 후 IDLE."""
+        if phase_updown:
+            self._fail_updown += 1
+            count = self._fail_updown
+            retry_state = UPDOWN_READY
+        else:
+            self._fail_number += 1
+            count = self._fail_number
+            retry_state = NUMBER_READY
+
+        self.get_logger().warn(f'실패 {count}/{MAX_FAIL}회')
+
+        if count >= MAX_FAIL:
+            self.get_logger().error(f'연속 {MAX_FAIL}회 실패 → NEED_REPOSITION 발행')
+            self.status_pub.publish(String(data='NEED_REPOSITION'))
+            self._fail_updown = 0
+            self._fail_number = 0
+            self.state = IDLE
+        else:
+            self.state = retry_state
+
+    def _get_green_ratio(self) -> float | None:
+        """저장된 bbox ROI의 green 픽셀 비율 반환. 확인 불가 시 None."""
+        frame = self.latest_frame
+        bbox  = self._last_updown_bbox
+        if frame is None or bbox is None:
+            return None
+        x1, y1, x2, y2 = bbox
+        h, w = frame.shape[:2]
+        roi = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
+        if roi.size == 0:
+            return None
+        hsv  = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array([35, 50, 50]), np.array([85, 255, 255]))
+        return np.count_nonzero(mask) / (roi.shape[0] * roi.shape[1])
+
+    def _check_button_lit(self) -> bool:
+        """UP/DOWN 버튼 점등 여부 확인. 확인 불가 시 True(성공으로 간주) 반환."""
+        ratio = self._get_green_ratio()
+        if ratio is None:
+            self.get_logger().warn('점등 확인 불가 (프레임/bbox 없음) → 성공으로 간주')
+            return True
+        self.get_logger().info(f'버튼 점등 확인: green_ratio={ratio:.3f} (기준 {LIT_GREEN_RATIO})')
+        return ratio > LIT_GREEN_RATIO
+
+    def _wait_for_button_unlit(self):
+        """버튼 불 꺼질 때까지 대기 (= 엘리베이터 도착). 타임아웃 시 그냥 진행."""
+        self.get_logger().info(
+            f'버튼 소등 대기 중 (최대 {ELEVATOR_WAIT_TIMEOUT:.0f}초)...')
+        deadline = time.time() + ELEVATOR_WAIT_TIMEOUT
+        last_log  = time.time()
+        while time.time() < deadline:
+            ratio = self._get_green_ratio()
+            if ratio is None:
+                self.get_logger().warn('소등 확인 불가 (프레임/bbox 없음) → 진행')
+                return
+            if time.time() - last_log >= 5.0:
+                self.get_logger().info(f'소등 대기 중... green_ratio={ratio:.3f}')
+                last_log = time.time()
+            if ratio <= LIT_GREEN_RATIO:
+                self.get_logger().info(
+                    f'✅ 버튼 소등 감지! (green_ratio={ratio:.3f}) 엘리베이터 도착')
+                self.status_pub.publish(String(data='ELEVATOR_ARRIVED'))
+                return
+            time.sleep(UNLIT_CHECK_INTERVAL)
+        self.get_logger().warn(
+            f'소등 감지 타임아웃 ({ELEVATOR_WAIT_TIMEOUT:.0f}초) → 강제 진행')
+
     def _press_button(self, X: float, Y: float, Z: float, label: str = ''):
+        phase_updown = (self.state == UPDOWN_PRESS)
+
         joints = solve_ik(X, Y, Z)
         if joints is None:
             self.get_logger().error(
                 f'IK 해 없음 [{label}]: 목표({X:.3f},{Y:.3f},{Z:.3f})가 도달 범위 밖')
             self.status_pub.publish(String(data='FAILED'))
-            # 이전 phase로 복귀하여 재시도
-            if self.state == UPDOWN_PRESS:
-                self.state = UPDOWN_READY
-            elif self.state == NUMBER_PRESS:
-                self.state = NUMBER_READY
+            self._on_press_fail(phase_updown)
             return
 
         self.get_logger().info(
@@ -493,34 +573,41 @@ class UnifiedButtonNode(Node):
 
         ok = self._send_trajectory(joints)
         if ok:
-            self.get_logger().info(f'✅ [{label}] 버튼 누르기 성공!')
-            self.status_pub.publish(String(data='BUTTON_PRESSED'))
-
-            if self.state == UPDOWN_PRESS:
+            if phase_updown:
                 self.current_floor = self.target_floor
                 self.state = WAIT
-                self.get_logger().info('UP/DOWN 완료. home으로 복귀 중...')
+                self.get_logger().info('UP/DOWN 궤적 완료. home 복귀 후 점등 확인...')
                 threading.Thread(target=self._return_home_then_wait, daemon=True).start()
-            elif self.state == NUMBER_PRESS:
+            else:
+                self._fail_number = 0
+                self.get_logger().info(f'✅ [{label}] 버튼 누르기 성공!')
+                self.status_pub.publish(String(data='BUTTON_PRESSED'))
                 self.state = DONE
                 self.get_logger().info('✅ 전체 시퀀스 완료! 3초 후 home 복귀')
                 threading.Timer(3.0, self._move_to_home).start()
         else:
             self.get_logger().error(f'❌ [{label}] 버튼 이동 실패')
             self.status_pub.publish(String(data='FAILED'))
-            if self.state == UPDOWN_PRESS:
-                self.state = UPDOWN_READY
-            elif self.state == NUMBER_PRESS:
-                self.state = NUMBER_READY
+            self._on_press_fail(phase_updown)
 
     def _return_home_then_wait(self):
         ok = self._send_trajectory(HOME_JOINTS)
         if ok:
-            self.get_logger().info(
-                f'✅ home 복귀 완료. 엘리베이터 대기 {ELEVATOR_WAIT_SEC:.0f}초...')
+            self.get_logger().info('home 복귀 완료. 버튼 점등 확인 중...')
         else:
-            self.get_logger().error('❌ home 복귀 실패. 그래도 대기 후 숫자 인식 진행')
-        time.sleep(ELEVATOR_WAIT_SEC)
+            self.get_logger().error('home 복귀 실패. 점등 확인 진행')
+
+        time.sleep(0.5)  # 카메라 프레임 안정화
+
+        if not self._check_button_lit():
+            self.get_logger().warn('버튼 점등 미확인 → 재시도')
+            self._on_press_fail(phase_updown=True)
+            return
+
+        self._fail_updown = 0
+        self.get_logger().info('✅ UP/DOWN 버튼 점등 확인! 엘리베이터 도착 대기...')
+        self.status_pub.publish(String(data='BUTTON_PRESSED'))
+        self._wait_for_button_unlit()
         self._start_number_phase()
 
     def _start_number_phase(self):
