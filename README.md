@@ -151,34 +151,8 @@ sudo apt install ros-humble-realsense2-camera
 
 ### 3. open_manipulator_patches 적용 (선택)
 
-이 레포의 `ros2_packages/open_manipulator_patches/` 아래 파일을 `colcon_ws`에 복사합니다.
-
-| 사용 목적 | 필요한 패치 |
-|---|---|
-| `real_robot_unified.py` (권장) | 패치 불필요 |
-| MoveIt2 노드 (`real_robot_yolo_moveit.py`) | `kinematics.yaml` 필수 |
-| Isaac Sim 시뮬레이션 | `isaac_sim_tf.launch.py` 필수 |
-
-```bash
-cd ~/elevator-button-robot/ros2_packages/open_manipulator_patches
-
-# MoveIt2 사용 시
-cp open_manipulator_x_moveit_config/config/kinematics.yaml \
-   ~/colcon_ws/src/open_manipulator/open_manipulator_x_moveit_config/config/kinematics.yaml
-
-# Isaac Sim 시뮬레이션 사용 시
-cp open_manipulator_x_description/launch/isaac_sim_tf.launch.py \
-   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/launch/
-cp open_manipulator_x_description/urdf/open_manipulator_x_with_camera.urdf.xacro \
-   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/urdf/
-cp open_manipulator_x_description/urdf/open_manipulator_x_with_camera.urdf \
-   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/urdf/
-cp open_manipulator_x_description/urdf/stand_rs-d435_s01.stl \
-   ~/colcon_ws/src/open_manipulator/open_manipulator_x_description/urdf/
-
-# 패치 적용 후 재빌드
-cd ~/colcon_ws && colcon build --symlink-install
-```
+MoveIt2 노드 또는 Isaac Sim 시뮬레이션 사용 시에만 필요합니다.  
+→ [적용 방법 보기](ros2_packages/open_manipulator_patches/README.md)
 
 ---
 
