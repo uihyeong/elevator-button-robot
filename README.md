@@ -18,6 +18,12 @@
 자율주행 로봇 (엘리베이터 탑승 → 배달 → 복귀)
 ```
 
+### SW 블록 다이어그램
+
+<p align="center">
+  <img src="media/sw_block_diagram.svg" width="90%"/>
+</p>
+
 ## 데모
 
 ### 실제 로봇
