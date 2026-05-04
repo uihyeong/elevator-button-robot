@@ -94,6 +94,58 @@ IDLE → UPDOWN_READY → UPDOWN_PRESS → WAIT → NUMBER_READY → NUMBER_PRES
 
 ---
 
+## 해석적 IK (Analytical Inverse Kinematics)
+
+MoveIt2 없이 수식을 직접 유도하여 관절각을 계산합니다.
+
+<p align="center">
+  <img src="https://emanual.robotis.com/assets/images/platform/openmanipulator_x/rviz_om_view.png" width="40%"/>
+</p>
+
+### 링크 파라미터
+
+| 기호 | 값 | 설명 |
+|------|-----|------|
+| $L_1$ | 0.0595 m | base → joint2 (수직) |
+| $L_2$ | $\sqrt{0.024^2 + 0.128^2} \approx 0.1302$ m | joint2 → joint3 유효 길이 |
+| $\alpha$ | $\text{atan2}(0.128,\ 0.024) \approx 79.4°$ | link2 수평 기준각 |
+| $L_3$ | 0.124 m | joint3 → joint4 |
+| $L_4$ | 0.126 m | joint4 → end-effector |
+
+### 수식 유도
+
+목표 위치 $(X, Y, Z)$ 가 주어졌을 때:
+
+**① θ₁ — 베이스 회전**
+
+$$\theta_1 = \text{atan2}(Y,\ X)$$
+
+**② 손목 위치 계산** (end-effector에서 $L_4$ 제거)
+
+$$r_w = \sqrt{X^2 + Y^2} - L_4, \qquad z_w = Z$$
+
+$$d_r = r_w, \quad d_z = z_w - L_1, \quad D = \sqrt{d_r^2 + d_z^2}$$
+
+**③ 코사인 법칙** → ψ (L₂, L₃ 사이각, 두 해: elbow-up / elbow-down)
+
+$$\cos\psi = \frac{D^2 - L_2^2 - L_3^2}{2 L_2 L_3}, \qquad \psi = \pm\arccos(\cos\psi)$$
+
+**④ θ₂, θ₃**
+
+$$\gamma = \text{atan2}(L_3 \sin\psi,\ L_2 + L_3 \cos\psi)$$
+
+$$\theta_2 = \alpha - \bigl(\text{atan2}(d_z,\ d_r) - \gamma\bigr)$$
+
+$$\theta_3 = -\psi - \alpha$$
+
+**⑤ θ₄ — 수평 접근 구속 조건** (end-effector가 버튼에 수평으로 접근)
+
+$$\theta_4 = -(\theta_2 + \theta_3)$$
+
+elbow-up / elbow-down 두 해를 모두 계산한 뒤, 관절 한계를 통과하는 첫 번째 해를 사용합니다.
+
+---
+
 ## 설치
 
 ### 요구 사항
