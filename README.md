@@ -231,10 +231,38 @@ ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
 
 ---
 
-### 접촉 감지 (`contact_detector.py`) — 선택, 병렬 실행
+### 접촉 감지 — 선택, 병렬 실행
 
-팔이 정지 중일 때 joint effort를 모니터링하다가 외부 접촉이 감지되면  
-joint3·4를 빠르게 접어 움츠러든 뒤 홈으로 복귀합니다.
+두 가지 방식을 제공합니다.
+
+#### 방법 A — SVM 기반 (`contact_detector_svm.py`) ★ 권장
+
+FSR406 센서로 수집한 실측 데이터(총 19,664 슬라이딩 윈도우)로 학습한  
+SVM(RBF 커널) 모델이 접촉 여부를 분류합니다.
+
+**특징 벡터 (160차원)**:  
+최근 10샘플 × (joint velocity 4 + effort_delta 4 + 프레임 간 diff 8)
+
+**학습 결과**: 5-fold CV F1 **0.812 ± 0.006** (sklearn 1.7.2, StandardScaler 정규화)
+
+**오인식 방지**:
+- 버튼 누르는 중 (`MOVING` 상태): 감지 완전 차단
+- 홈 복귀 중 (`MOVING` 종료 후 6초): 감지 억제
+- 연속 3윈도우 × prob ≥ 0.80 조건 충족 시에만 접촉 확정
+
+```bash
+python3 nodes/real_robot/contact_detector_svm.py
+```
+
+모델 재학습 (로그 파일 추가 후):
+
+```bash
+python3 nodes/real_robot/train_svm_model.py
+```
+
+#### 방법 B — Effort Threshold 기반 (`contact_detector.py`)
+
+joint3 effort 편차가 threshold를 초과하면 접촉으로 판정하는 단순 방식입니다.
 
 ```bash
 python3 nodes/real_robot/contact_detector.py
@@ -276,7 +304,10 @@ elevator-button-robot/
 │   │   ├── real_robot_unified.py       # ★ YOLO 통합 노드 (UP/DOWN → 숫자 전체 시퀀스)
 │   │   ├── real_robot_gemini_vlm.py    # ★ Gemini VLM 통합 노드 (zero-shot, 권장)
 │   │   ├── test_gemini_detection.py    # Gemini 인식 단독 테스트 (ROS2 불필요)
-│   │   ├── contact_detector.py         # 접촉 감지 → 자동 후퇴 (병렬 실행)
+│   │   ├── contact_detector.py         # 접촉 감지 — Effort Threshold 방식
+│   │   ├── contact_detector_svm.py     # ★ 접촉 감지 — SVM 방식 (권장)
+│   │   ├── train_svm_model.py          # SVM 모델 재학습 스크립트
+│   │   ├── fsr_effort_logger.py        # FSR + effort 동시 로깅 (학습 데이터 수집)
 │   │   ├── real_robot_direct_ik.py     # UP/DOWN 단독 노드
 │   │   ├── real_robot_num_ocr_ik.py    # 숫자 버튼 단독 노드
 │   │   └── real_robot_yolo_moveit.py   # MoveIt2 IK 노드 (참고용)
