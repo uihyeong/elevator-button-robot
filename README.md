@@ -24,22 +24,6 @@
   <img src="media/sw_block_diagram.svg" width="90%"/>
 </p>
 
-## 데모
-
-### 실제 로봇
-
-<p align="center">
-  <img src="media/demo1.gif" width="48%"/>
-  <img src="media/demo2.gif" width="48%"/>
-</p>
-
-### Isaac Sim 시뮬레이션
-
-<p align="center">
-  <img src="media/sim_full.gif" width="48%"/>
-  <img src="media/sim_robot.gif" width="48%"/>
-</p>
-
 ## 기술 스택
 
 | 분야 | 기술 |
@@ -281,6 +265,11 @@ python3 nodes/real_robot/real_robot_unified.py
 ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
 ```
 
+<p align="center">
+  <img src="media/demo1.gif" width="48%"/>
+  <img src="media/demo2.gif" width="48%"/>
+</p>
+
 ---
 
 ### 접촉 감지 — 선택, 병렬 실행
@@ -344,6 +333,11 @@ ros2 launch open_manipulator_x_moveit_config moveit_core.launch.py
 python3 nodes/simulation/pid_joint_controller.py
 python3 nodes/simulation/isaac_sim_yolo_moveit.py
 ```
+
+<p align="center">
+  <img src="media/sim_full.gif" width="48%"/>
+  <img src="media/sim_robot.gif" width="48%"/>
+</p>
 
 ---
 
