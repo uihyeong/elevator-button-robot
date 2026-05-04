@@ -31,7 +31,7 @@ from sensor_msgs.msg import JointState
 import serial
 
 JOINT_NAMES    = ['joint1', 'joint2', 'joint3', 'joint4']
-FSR_THRESHOLD  = 20
+FSR_THRESHOLD  = 10
 SERIAL_BAUD    = 9600
 OUTPUT_FILE    = os.path.join(os.path.dirname(__file__), 'fsr_effort_log.csv')
 
@@ -95,7 +95,7 @@ def serial_ros_loop(port: str):
                     continue
                 try:
                     fsr_val = int(parts[1])
-                    label   = int(parts[2])
+                    label   = 1 if fsr_val > FSR_THRESHOLD else 0  # Python 측 판단 (아두이노 무시)
                 except ValueError:
                     continue
 
@@ -157,7 +157,7 @@ def _print_summary(rows):
     for i, name in enumerate(JOINT_NAMES, start=9):  # e1~e4는 index 9~12
         vals = [abs(r[i]) for r in tap_rows]
         print(f'{name}  탭 시 effort  max={max(vals):.1f}  avg={sum(vals)/len(vals):.1f}')
-    print(f'\n현재 COLLISION_THRESHOLD = 80  —  위 max 값 참고해서 조정하세요.')
+    print(f'\n현재 COLLISION_THRESHOLD = 15  —  위 max 값 참고해서 조정하세요.')
 
 
 if __name__ == '__main__':

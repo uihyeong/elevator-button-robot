@@ -32,9 +32,9 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 # ─── 파라미터 ─────────────────────────────────────────────────────────────────
 
-MONITOR_JOINTS    = ['joint2', 'joint3', 'joint4']  # joint1은 무부하라 제외
-COLLISION_THRESHOLD = 80     # baseline 대비 이 값 초과 시 접촉 판정 (Dynamixel 전류 단위)
-                              # 1 unit ≈ 2.69 mA → 80 units ≈ 215 mA
+MONITOR_JOINTS    = ['joint3']  # 실측상 joint3 effort만 탭 시 유의미한 변화 (~18 units)
+COLLISION_THRESHOLD = 15     # baseline 대비 이 값 초과 시 접촉 판정 (Dynamixel 전류 단위)
+                              # 1 unit ≈ 2.69 mA → 15 units ≈ 40 mA
 VELOCITY_STILL    = 0.01     # 이 값 이하면 정지로 판정 (rad/s)
 CALIBRATE_SAMPLES = 30       # baseline 측정에 사용할 샘플 수
 COOLDOWN_SEC      = 3.0      # 접촉 감지 후 재감지까지 대기 시간 (초)
