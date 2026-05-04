@@ -42,16 +42,6 @@
 | 시뮬레이션 | Isaac Sim 5.1.0 |
 | 언어 | Python 3.10 |
 
-## YOLO 학습 결과 (UP/DOWN 버튼)
-
-<p align="center">
-  <img src="yolo/results/results.png" width="32%"/>
-  <img src="yolo/results/confusion_matrix_normalized.png" width="32%"/>
-  <img src="yolo/results/val_batch0_pred.jpg" width="32%"/>
-</p>
-
-mAP50: **98.7%**
-
 ---
 
 ## 전체 동작 흐름
@@ -136,6 +126,18 @@ elbow-up / elbow-down 두 해를 모두 계산한 뒤, 관절 한계를 통과�
 
 ---
 
+## YOLO 학습 결과 (UP/DOWN 버튼)
+
+<p align="center">
+  <img src="yolo/results/results.png" width="32%"/>
+  <img src="yolo/results/confusion_matrix_normalized.png" width="32%"/>
+  <img src="yolo/results/val_batch0_pred.jpg" width="32%"/>
+</p>
+
+mAP50: **98.7%**
+
+---
+
 ## 설치
 
 ### 요구 사항
@@ -144,8 +146,6 @@ elbow-up / elbow-down 두 해를 모두 계산한 뒤, 관절 한계를 통과�
 - Python 3.10
 - OpenMANIPULATOR-X + U2D2 (실제 로봇)
 - Intel RealSense D435 (실제 로봇)
-
----
 
 ### 1. 이 레포 클론 (버튼 인식·IK 노드)
 
@@ -156,8 +156,6 @@ pip install -r requirements.txt
 ```
 
 > **주의**: `numpy < 2.0.0` 필요. cv_bridge가 NumPy 1.x 기준으로 컴파일되어 있습니다.
-
----
 
 ### 2. colcon_ws — ROS2 하드웨어 패키지 빌드
 
@@ -194,8 +192,6 @@ sudo apt install ros-humble-realsense2-camera
 ```
 
 > 전체 설치 가이드 (U2D2 통신 설정 등): [ROBOTIS e-Manual — OpenMANIPULATOR-X Quick Start Guide](https://emanual.robotis.com/docs/en/platform/openmanipulator_x/quick_start_guide/)
-
----
 
 ### 3. open_manipulator_patches 적용 (선택)
 
