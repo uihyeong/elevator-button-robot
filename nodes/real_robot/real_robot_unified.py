@@ -83,7 +83,7 @@ UPDOWN_CONF_MIN   = 0.7    # UP/DOWN 인식 신뢰도 기준
 NUM_CONF_MIN      = 0.5    # 숫자 박스 신뢰도 기준
 NUM_PRESS_CONF    = 0.7    # 숫자 버튼 누르기 신뢰도 기준
 OCR_INTERVAL      = 5      # 매 N프레임마다 OCR 실행
-BUTTON_OFFSET_X   = 0.075  # 버튼 표면 앞 정지 거리 (m)
+BUTTON_OFFSET_X   = 0.075  # 버튼 앞 정지 거리 (m)
 ELEVATOR_WAIT_TIMEOUT  = 60.0   # 버튼 소등 감지 최대 대기 시간 (초)
 UNLIT_CHECK_INTERVAL   = 0.5    # 소등 확인 폴링 간격 (초)
 MAX_FAIL          = 3      # 연속 실패 허용 횟수 (초과 시 NEED_REPOSITION → IDLE)
@@ -368,7 +368,7 @@ class UnifiedButtonNode(Node):
                 self.get_logger().info(f'{cls} 감지! IK 시작')
                 threading.Thread(
                     target=self._press_button,
-                    args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.03, cls),
+                    args=(X, 0.0, Z - 0.046, cls),
                     daemon=True,
                 ).start()
 
@@ -479,8 +479,7 @@ class UnifiedButtonNode(Node):
             f'{self.target_floor}층 버튼 감지! 위치: ({X:.3f}, {Y:.3f}, {Z:.3f})')
         threading.Thread(
             target=self._press_button,
-            args=(X - BUTTON_OFFSET_X * math.copysign(1.0, X), Y, Z - 0.03,
-                  f'{self.target_floor}층'),
+            args=(X, 0.0, Z - 0.046, f'{self.target_floor}층'),
             daemon=True,
         ).start()
 
@@ -520,7 +519,7 @@ class UnifiedButtonNode(Node):
         if roi.size == 0:
             return None
         hsv  = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, np.array([35, 50, 50]), np.array([85, 255, 255]))
+        mask = cv2.inRange(hsv, np.array([30, 40, 40]), np.array([95, 255, 255]))
         return np.count_nonzero(mask) / (roi.shape[0] * roi.shape[1])
 
     def _check_button_lit(self) -> bool:
@@ -557,40 +556,36 @@ class UnifiedButtonNode(Node):
 
     def _press_button(self, X: float, Y: float, Z: float, label: str = ''):
         phase_updown = (self.state == UPDOWN_PRESS)
+        sign = math.copysign(1.0, X)
 
-        joints = solve_ik(X, Y, Z)
-        if joints is None:
+        approach_x = X - BUTTON_OFFSET_X * sign
+        joints_approach = solve_ik(approach_x, Y, Z)
+        if joints_approach is None:
             self.get_logger().error(
-                f'IK 해 없음 [{label}]: 목표({X:.3f},{Y:.3f},{Z:.3f})가 도달 범위 밖')
+                f'IK 해 없음 [{label}]: ({approach_x:.3f},{Y:.3f},{Z:.3f})')
             self.status_pub.publish(String(data='FAILED'))
             self._on_press_fail(phase_updown)
             return
 
-        self.get_logger().info(
-            f'IK 성공 [{label}]: '
-            f'j1={math.degrees(joints[0]):.1f}° '
-            f'j2={math.degrees(joints[1]):.1f}° '
-            f'j3={math.degrees(joints[2]):.1f}° '
-            f'j4={math.degrees(joints[3]):.1f}°')
-
-        ok = self._send_trajectory(joints)
-        if ok:
-            if phase_updown:
-                self.current_floor = self.target_floor
-                self.state = WAIT
-                self.get_logger().info('UP/DOWN 궤적 완료. home 복귀 후 점등 확인...')
-                threading.Thread(target=self._return_home_then_wait, daemon=True).start()
-            else:
-                self._fail_number = 0
-                self.get_logger().info(f'✅ [{label}] 버튼 누르기 성공!')
-                self.status_pub.publish(String(data='BUTTON_PRESSED'))
-                self.state = DONE
-                self.get_logger().info('✅ 전체 시퀀스 완료! 3초 후 home 복귀')
-                threading.Timer(3.0, self._move_to_home).start()
-        else:
-            self.get_logger().error(f'❌ [{label}] 버튼 이동 실패')
+        self.get_logger().info(f'[{label}] → ({approach_x:.3f},{Y:.3f},{Z:.3f})')
+        if not self._send_trajectory(joints_approach):
+            self.get_logger().error(f'❌ [{label}] 이동 실패')
             self.status_pub.publish(String(data='FAILED'))
             self._on_press_fail(phase_updown)
+            return
+
+        self.get_logger().info(f'✅ [{label}] 버튼 누르기 완료')
+        if phase_updown:
+            self.current_floor = self.target_floor
+            self.state = WAIT
+            self.get_logger().info('UP/DOWN 완료. home 복귀 후 점등 확인...')
+            threading.Thread(target=self._return_home_then_wait, daemon=True).start()
+        else:
+            self._fail_number = 0
+            self.status_pub.publish(String(data='BUTTON_PRESSED'))
+            self.state = DONE
+            self.get_logger().info('✅ 전체 시퀀스 완료! 3초 후 home 복귀')
+            threading.Timer(3.0, self._move_to_home).start()
 
     def _return_home_then_wait(self):
         ok = self._send_trajectory(HOME_JOINTS)
