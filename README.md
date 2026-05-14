@@ -1,10 +1,5 @@
 # 자율주행 택배 로봇 — 엘리베이터 버튼 인식 및 조작 시스템
 
-![ROS2](https://img.shields.io/badge/ROS2-Humble-blue)
-![Python](https://img.shields.io/badge/Python-3.10-blue)
-![YOLOv8](https://img.shields.io/badge/YOLOv8-mAP50%3A98.7%25-green)
-![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash-orange)
-![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 캡스톤디자인 프로젝트 — 자율주행 택배 로봇이 엘리베이터를 스스로 탑승할 수 있도록,  
 로봇팔이 카메라로 버튼을 인식하고 자동으로 누르는 시스템입니다.
