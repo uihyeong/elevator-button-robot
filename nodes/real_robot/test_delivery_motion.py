@@ -1,8 +1,7 @@
 """
 배달 모션 데모 테스트.
 
-실측 전에 팔 동작 흐름을 확인하기 위한 스크립트.
-그리퍼 동작 없이 arm 웨이포인트만 순서대로 이동.
+실측 전에 팔 + 그리퍼 동작 흐름을 확인하기 위한 스크립트.
 
 실행:
   ros2 launch open_manipulator_x_bringup hardware.launch.py
@@ -20,7 +19,7 @@ import time
 
 import rclpy
 from builtin_interfaces.msg import Duration
-from control_msgs.action import FollowJointTrajectory
+from control_msgs.action import FollowJointTrajectory, GripperCommand
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
@@ -41,32 +40,25 @@ JOINT_LIMITS = [
     (-1.7,     1.97),
 ]
 
-JOINT_NAMES  = ['joint1', 'joint2', 'joint3', 'joint4']
-HOME_JOINTS  = [-3.141, -0.9948, 0.6981, 0.2967]
-MOVE_SPEED   = 0.4   # 데모용 느리게
-MIN_DURATION = 2.0
+JOINT_NAMES   = ['joint1', 'joint2', 'joint3', 'joint4']
+GRIPPER_NAMES = ['gripper']
+HOME_JOINTS   = [-3.141, -0.9948, 0.6981, 0.2967]
+GRIPPER_OPEN  = [0.01]    # rad
+GRIPPER_CLOSE = [-0.005]  # rad (에코백 손잡이 두께에 맞게 조정)
+MOVE_SPEED    = 0.4       # 데모용 느리게
+MIN_DURATION  = 2.0
 
-# ─── 데모 웨이포인트 (IK 가능 확인된 값) ──────────────────────────────────────
-# ⚠️  실측 후 real_robot_delivery.py 의 상수를 교체할 것.
-#     여기서는 팔이 도달 가능한 범위 내에서 동작 흐름만 확인.
-#
+# ─── 데모 웨이포인트 ──────────────────────────────────────────────────────────
 # 좌표 부호 기준 (joint1 = -π 홈 기준):
 #   -X = 팔이 향하는 방향 (문/엘리베이터 방향)
-#   +X = 팔 등 뒤 방향 (Scout Mini 상판/바구니 방향)
 #   +Y = 오른쪽 (문 바라볼 때 레버 있는 쪽)
-#   -Y = 왼쪽
 
-# 바구니 (Scout Mini 상판, 팔 앞 아래쪽 -X 방향)
-BASKET_HOVER = (-0.20,  0.00, 0.12)   # 바구니 위 (TODO: 실측 후 교체)
-BASKET_GRIP  = (-0.20,  0.00, 0.05)   # 에코백 손잡이 위치 (TODO: 실측 후 교체)
+BASKET_HOVER  = (-0.20,  0.00, 0.12)  # 바구니 위       (TODO: 실측)
+BASKET_GRIP   = (-0.20,  0.00, 0.05)  # 에코백 손잡이   (TODO: 실측)
 
-# 레버 문고리 (-X 방향, 오른쪽 +Y)
-# SIDE   : 레버 끝 오른쪽 바깥 (루프 진입 전)
-# INSERT : +Y → 작은 +Y 로 슬라이딩 (루프가 레버에 걸림)
-# HANG   : 살짝 하강 (루프 안착)
 HANDLE_SIDE   = (-0.20,  0.20, 0.23)  # 레버 끝 오른쪽 바깥
 HANDLE_INSERT = (-0.20,  0.07, 0.23)  # 슬라이딩 후 (레버 안쪽)
-HANDLE_HANG   = (-0.20,  0.07, 0.21)  # 2cm 하강 (루프 안착)
+HANDLE_HANG   = (-0.20,  0.07, 0.15)  # 하강 (루프 안착, 더 내려옴)
 
 # ─── IK ──────────────────────────────────────────────────────────────────────
 
@@ -111,29 +103,45 @@ def make_trajectory(target_joints, current_joints):
     traj.points.append(pt)
     return traj, duration
 
-# ─── 시퀀스 정의 ──────────────────────────────────────────────────────────────
+# ─── 슬라이딩 전용 조인트 (joint1만 회전, joint2/3/4 고정) ──────────────────
+# HANDLE_SIDE → HANDLE_INSERT 이동 시 joint2 고정 → 몸쪽 진입 방지
+_j_side = solve_ik(*HANDLE_SIDE)
+HANDLE_SLIDE_JOINTS = None
+if _j_side:
+    _j1_insert = math.atan2(HANDLE_INSERT[1], HANDLE_INSERT[0])
+    HANDLE_SLIDE_JOINTS = [_j1_insert, _j_side[1], _j_side[2], _j_side[3]]
+
+# ─── 시퀀스 정의 ─────────────────────────────────────────────────────────────
+# 스텝 형식: (label, joints, xyz, gripper)
+#   joints  : 관절값 리스트 or None
+#   xyz     : (X, Y, Z) 튜플 or None
+#   gripper : GRIPPER_OPEN / GRIPPER_CLOSE / None (생략)
 
 DELIVER_STEPS = [
-    ('홈',                   HOME_JOINTS,    None),
-    ('바구니 위',             None,           BASKET_HOVER),
-    ('바구니 하강 (집기)',    None,           BASKET_GRIP),
-    ('바구니 위 들어올리기', None,           BASKET_HOVER),
-    ('레버 끝 오른쪽 접근',  None,           HANDLE_SIDE),
-    ('왼쪽 슬라이딩 (끼우기)', None,         HANDLE_INSERT),
-    ('하강 (루프 안착)',     None,           HANDLE_HANG),
-    ('오른쪽 후퇴',          None,           HANDLE_SIDE),
-    ('홈 복귀',              HOME_JOINTS,    None),
+    ('홈',                        HOME_JOINTS,          None,          None),
+    ('그리퍼 열기',                None,                 None,          GRIPPER_OPEN),
+    ('바구니 위',                  None,                 BASKET_HOVER,  None),
+    ('바구니 하강',                None,                 BASKET_GRIP,   None),
+    ('그리퍼 닫기 (에코백 잡기)', None,                 None,          GRIPPER_CLOSE),
+    ('바구니 위 들어올리기',       None,                 BASKET_HOVER,  None),
+    ('레버 끝 오른쪽 접근',        None,                 HANDLE_SIDE,   None),
+    ('왼쪽 슬라이딩 (j1만 회전)', HANDLE_SLIDE_JOINTS,  None,          None),
+    ('하강 (루프 안착)',           None,                 HANDLE_HANG,   None),
+    ('그리퍼 열기 (에코백 놓기)', None,                 None,          GRIPPER_OPEN),
+    ('홈 복귀',                    HOME_JOINTS,          None,          None),
 ]
 
 RETRIEVE_STEPS = [
-    ('홈',                   HOME_JOINTS,    None),
-    ('레버 끝 오른쪽 접근',  None,           HANDLE_SIDE),
-    ('왼쪽 이동 (루프 위치)', None,          HANDLE_INSERT),
-    ('오른쪽 슬라이딩 (이탈)', None,         HANDLE_SIDE),
-    ('바구니 위',            None,           BASKET_HOVER),
-    ('바구니 하강 (내려놓기)', None,         BASKET_GRIP),
-    ('바구니 위 후퇴',       None,           BASKET_HOVER),
-    ('홈 복귀',              HOME_JOINTS,    None),
+    ('홈',                        HOME_JOINTS,  None,          None),
+    ('그리퍼 열기',                None,         None,          GRIPPER_OPEN),
+    ('루프 집기 위치',             None,         HANDLE_INSERT, None),
+    ('그리퍼 닫기 (루프 잡기)',    None,         None,          GRIPPER_CLOSE),
+    ('오른쪽 슬라이딩 (이탈)',     None,         HANDLE_SIDE,   None),
+    ('바구니 위',                  None,         BASKET_HOVER,  None),
+    ('바구니 하강',                None,         BASKET_GRIP,   None),
+    ('그리퍼 열기 (에코백 놓기)',  None,         None,          GRIPPER_OPEN),
+    ('바구니 위 후퇴',             None,         BASKET_HOVER,  None),
+    ('홈 복귀',                    HOME_JOINTS,  None,          None),
 ]
 
 # ─── 테스트 노드 ──────────────────────────────────────────────────────────────
@@ -149,12 +157,18 @@ class DeliveryTestNode(Node):
             self, FollowJointTrajectory,
             '/arm_controller/follow_joint_trajectory')
 
+        self._gripper_client = ActionClient(
+            self, GripperCommand,
+            '/gripper_controller/gripper_cmd')
+
         self.create_subscription(JointState, '/joint_states', self._cb_joints, 10)
         self.get_logger().info('테스트 노드 시작. 2초 후 홈 이동...')
 
     def _cb_joints(self, msg):
         with self.lock:
             self.current_joints = msg
+
+    # ─── 팔 이동 ─────────────────────────────────────────────────────────────
 
     def move_to_joints(self, joints, label=''):
         if not self._arm_client.wait_for_server(timeout_sec=5.0):
@@ -195,10 +209,7 @@ class DeliveryTestNode(Node):
             time.sleep(0.1)
 
         ok = (rf.result().result.error_code == FollowJointTrajectory.Result.SUCCESSFUL)
-        if ok:
-            print(f'  ✅ 완료')
-        else:
-            print(f'  ❌ 실패 (error_code={rf.result().result.error_code})')
+        print('  ✅ 완료' if ok else f'  ❌ 실패 (error_code={rf.result().result.error_code})')
         return ok
 
     def move_to_xyz(self, X, Y, Z, label=''):
@@ -209,12 +220,49 @@ class DeliveryTestNode(Node):
         print(f'  IK: j={[f"{j:.3f}" for j in joints]}')
         return self.move_to_joints(joints, label)
 
+    # ─── 그리퍼 ──────────────────────────────────────────────────────────────
+
+    def send_gripper(self, position: list) -> bool:
+        if not self._gripper_client.wait_for_server(timeout_sec=5.0):
+            print('  ❌ gripper_controller 서버 없음!')
+            return False
+
+        goal = GripperCommand.Goal()
+        goal.command.position   = position[0]  # rad
+        goal.command.max_effort = 0.0           # 제한 없음
+
+        future = self._gripper_client.send_goal_async(goal)
+        deadline = time.time() + 10.0
+        while not future.done():
+            if time.time() > deadline:
+                print('  ❌ 그리퍼 수락 타임아웃')
+                return False
+            time.sleep(0.05)
+
+        gh = future.result()
+        if not gh.accepted:
+            print('  ❌ 그리퍼 액션 거부됨')
+            return False
+
+        rf = gh.get_result_async()
+        deadline = time.time() + 5.0
+        while not rf.done():
+            if time.time() > deadline:
+                print('  ❌ 그리퍼 실행 타임아웃')
+                return False
+            time.sleep(0.05)
+
+        print('  ✅ 완료')
+        return True
+
+    # ─── 시퀀스 실행 ─────────────────────────────────────────────────────────
+
     def run_sequence(self, steps, name):
         print(f'\n{"="*50}')
         print(f' {name} 시퀀스 시작')
         print(f'{"="*50}')
 
-        for i, (label, joints, xyz) in enumerate(steps):
+        for i, (label, joints, xyz, gripper) in enumerate(steps):
             print(f'\n[{i+1}/{len(steps)}] {label}')
 
             key = input('  Enter: 실행 / q: 종료 / r: 처음부터 > ').strip().lower()
@@ -225,6 +273,14 @@ class DeliveryTestNode(Node):
             if key == 'r':
                 return 'restart'
 
+            # 그리퍼 동작
+            if gripper is not None:
+                label_g = '열기' if gripper == GRIPPER_OPEN else '닫기'
+                print(f'  그리퍼 {label_g} ({gripper[0]} rad)')
+                self.send_gripper(gripper)
+                time.sleep(0.3)
+
+            # 팔 이동
             if joints is not None:
                 self.move_to_joints(joints, label)
             elif xyz is not None:
@@ -243,11 +299,9 @@ def main():
     rclpy.init()
     node = DeliveryTestNode()
 
-    # ROS2 spin을 백그라운드에서 실행
     spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     spin_thread.start()
 
-    # 홈 이동 대기
     time.sleep(2.0)
     print('\n홈 포지션으로 이동...')
     node.move_to_joints(HOME_JOINTS, 'home')
@@ -256,22 +310,19 @@ def main():
     print('\n─── 웨이포인트 IK 확인 ───')
     all_ok = True
     for name, xyz in [
-        ('BASKET_HOVER',   BASKET_HOVER),
-        ('BASKET_GRIP',    BASKET_GRIP),
-        ('HANDLE_SIDE',    HANDLE_SIDE),
-        ('HANDLE_INSERT',  HANDLE_INSERT),
-        ('HANDLE_HANG',    HANDLE_HANG),
+        ('BASKET_HOVER',  BASKET_HOVER),
+        ('BASKET_GRIP',   BASKET_GRIP),
+        ('HANDLE_SIDE',   HANDLE_SIDE),
+        ('HANDLE_INSERT', HANDLE_INSERT),
+        ('HANDLE_HANG',   HANDLE_HANG),
     ]:
         j = solve_ik(*xyz)
         status = '✅' if j else '❌ IK 불가'
-        print(f'  {name:16s} {str(xyz):30s} {status}')
+        print(f'  {name:14s} {str(xyz):30s} {status}')
         if not j:
             all_ok = False
 
-    if not all_ok:
-        print('\n⚠️  IK 불가 웨이포인트 있음. 해당 스텝은 건너뜁니다.')
-    else:
-        print('\n모든 웨이포인트 IK 가능 ✅')
+    print('\n모든 웨이포인트 IK 가능 ✅' if all_ok else '\n⚠️  IK 불가 웨이포인트 있음. 해당 스텝은 건너뜁니다.')
 
     while True:
         print('\n─── 메뉴 ───')

@@ -25,7 +25,7 @@ import time
 
 import rclpy
 from builtin_interfaces.msg import Duration
-from control_msgs.action import FollowJointTrajectory
+from control_msgs.action import FollowJointTrajectory, GripperCommand
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
@@ -206,8 +206,8 @@ class DeliveryRobot(Node):
 
         # gripper 액션 클라이언트 (unified.py 에 없던 신규)
         self._gripper_client = ActionClient(
-            self, FollowJointTrajectory,
-            '/gripper_controller/follow_joint_trajectory')
+            self, GripperCommand,
+            '/gripper_controller/gripper_cmd')
 
         # 발행
         self.status_pub = self.create_publisher(String, '/delivery_status', 10)
@@ -453,16 +453,9 @@ class DeliveryRobot(Node):
             self.get_logger().error('gripper_controller 액션 서버 없음!')
             return False
 
-        traj             = JointTrajectory()
-        traj.joint_names = GRIPPER_NAMES
-        pt               = JointTrajectoryPoint()
-        pt.positions     = position
-        pt.velocities    = [0.0]
-        pt.time_from_start = Duration(sec=1, nanosec=0)
-        traj.points.append(pt)
-
-        goal = FollowJointTrajectory.Goal()
-        goal.trajectory = traj
+        goal = GripperCommand.Goal()
+        goal.command.position   = position[0]  # rad
+        goal.command.max_effort = 0.0
 
         future   = self._gripper_client.send_goal_async(goal)
         deadline = time.time() + 10.0
@@ -485,8 +478,7 @@ class DeliveryRobot(Node):
                 return False
             time.sleep(0.05)
 
-        code = result_future.result().result.error_code
-        return code == FollowJointTrajectory.Result.SUCCESSFUL
+        return True
 
     # ─── Home ────────────────────────────────────────────────────────────────
 
