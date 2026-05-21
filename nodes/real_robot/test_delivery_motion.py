@@ -126,7 +126,6 @@ DELIVER_STEPS = [
     ('바구니 위 들어올리기',       None,                 BASKET_HOVER,  None),
     ('레버 끝 오른쪽 접근',        None,                 HANDLE_SIDE,   None),
     ('왼쪽 슬라이딩 (j1만 회전)', HANDLE_SLIDE_JOINTS,  None,          None),
-    ('하강 (루프 안착)',           None,                 HANDLE_HANG,   None),
     ('그리퍼 열기 (에코백 놓기)', None,                 None,          GRIPPER_OPEN),
     ('홈 복귀',                    HOME_JOINTS,          None,          None),
 ]
