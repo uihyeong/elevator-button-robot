@@ -103,11 +103,13 @@ JOINT_LIMITS = [
 ]
 
 JOINT_NAMES   = ['joint1', 'joint2', 'joint3', 'joint4']
-HOME_JOINTS         = [3.141, -1.3963,  1.2217,  0.5236]
-BASKET_LOOK_JOINTS  = [3.142, -0.546,   0.802,   0.744]   # 바구니 확인용 (joint4 틸트)
-TABLE_LOOK_JOINTS   = [1.571, -1.3963,  1.2217,  0.5236]  # 책상 확인용 (joint1 오른쪽 90°)
-GRIPPER_OPEN  = [0.038]   # 실측 최대 0.040 rad
-GRIPPER_CLOSE = [-0.010]  # 완전 닫기 시도 → 박스에 stall (max_effort=10.0)
+HOME_JOINTS         = [3.141,  -1.3963,  1.2217,  0.5236]
+BASKET_LOOK_JOINTS  = [-3.116, -0.387,   0.755,   1.164]   # 바구니 확인용 — 실측 joint_states 2026-05-26
+TABLE_LOOK_JOINTS   = [1.571,  -1.3963,  1.2217,  0.5236]  # 책상 확인용 (joint1 오른쪽 90°)
+BASKET_PLACE_JOINTS = [3.1032,  0.00767, 1.41126, -1.41433]  # 픽업 바구니 내려놓기 — 실측 2026-05-26
+BASKET_GRIP_JOINTS  = [3.122,   0.457,   0.831,   0.305]    # 배달 바구니에서 잡기 — 실측 2026-05-26
+GRIPPER_OPEN  = [0.020]   # 실측 최대 0.040 rad
+GRIPPER_CLOSE = [0.000]   # 살살 잡기 — 박스 찌그러짐 방지 (0.010 너무 헐렁, -0.010 너무 셈)
 GRIPPER_REST  = [-0.005]  # 홈 자세용 닫힘 (스프링 방향, 튕김 없음)
 MOVE_SPEED    = 0.4
 MIN_DURATION  = 2.0
@@ -183,28 +185,27 @@ AUTO_GRAB_BASKET = _AutoGrab(BASKET_PLACE)
 PICKUP_STEPS = [
     ('홈',                             HOME_JOINTS,        None,         None,         'Home'),
     ('책상 방향 확인 (joint1 오른쪽)',   TABLE_LOOK_JOINTS,  None,         None,         'Look at Table'),
+    ('그리퍼 열기 (접근 전)',            None,               None,         GRIPPER_OPEN, 'Gripper Open'),
     ('박스 위 호버',                     None,               TABLE_HOVER,  None,         'Hover over Box'),
     ('박스 잡기 위치',                   None,               TABLE_GRIP,   None,         'Move to Grip'),
     ('그리퍼 닫기 (잡기)',               None,               None,         GRIPPER_CLOSE,'Grip Box'),
-    ('박스 들어올리기',                  TABLE_LOOK_JOINTS,  None,         None,         'Lift Box'),
-    ('바구니에 내려놓기',                None,               BASKET_PLACE, None,         'Place in Basket'),
+    ('바구니에 내려놓기',                BASKET_PLACE_JOINTS, None,        None,         'Place in Basket'),
     ('그리퍼 열기 (박스 놓기)',          None,               None,         GRIPPER_OPEN, 'Gripper Open'),
-    ('바구니 위 후퇴',                   None,               BASKET_HOVER, None,         'Retreat from Basket'),
     ('홈 복귀',                          HOME_JOINTS,        None,         None,         'Home'),
 ]
 
 DELIVER_STEPS = [
     ('홈',                              HOME_JOINTS,        None,         None,         'Home'),
-    ('바구니 위 이동',                   None,               BASKET_HOVER, None,         'Move to Basket'),
     ('바구니 확인 (joint4 틸트)',         BASKET_LOOK_JOINTS, None,         None,         'Look into Basket'),
-    ('바구니 박스 잡기 위치',             None,               BASKET_PLACE, None,         'Move to Grip'),
+    ('그리퍼 열기 (접근 전)',             None,               None,         GRIPPER_OPEN, 'Gripper Open'),
+    ('바구니 박스 잡기',                  BASKET_GRIP_JOINTS,  None,        None,         'Grip Box Position'),
     ('그리퍼 닫기 (잡기)',               None,               None,         GRIPPER_CLOSE,'Grip Box'),
     ('박스 들어올리기',                  None,               BASKET_HOVER, None,         'Lift Box'),
     ('목적지 방향 확인 (joint1 오른쪽)', TABLE_LOOK_JOINTS,  None,         None,         'Look at Dest'),
     ('목적지 책상 위 호버',              None,               DEST_HOVER,   None,         'Hover over Dest'),
     ('목적지에 내려놓기',                None,               DEST_PLACE,   None,         'Place at Dest'),
     ('그리퍼 열기 (박스 놓기)',          None,               None,         GRIPPER_OPEN, 'Gripper Open'),
-    ('목적지 위 후퇴',                   None,               DEST_HOVER,   None,         'Retreat from Dest'),
+    ('위로 호버',                        None,               DEST_HOVER,   None,         'Hover Up'),
     ('홈 복귀',                          HOME_JOINTS,        None,         None,         'Home'),
 ]
 
@@ -304,7 +305,7 @@ class DeliveryTestNode(Node):
                 color        = (0, 255, 0) if cls_name in HIGHLIGHT_CLASSES else (160, 160, 160)
                 display_label = 'box' if cls_name in HIGHLIGHT_CLASSES else cls_name
                 cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(vis, f'{display_label} {conf:.2f}',
+                cv2.putText(vis, display_label,
                             (x1, max(y1 - 8, 12)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
