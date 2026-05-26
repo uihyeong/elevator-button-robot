@@ -30,7 +30,7 @@
 
 실행:
   ros2 launch open_manipulator_x_bringup hardware.launch.py
-  ros2 launch realsense2_camera rs_launch.py
+  ros2 launch realsense2_camera rs_launch.py align_depth.enable:=true
   ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.01 --z 0.062 \\
       --roll 0 --pitch 0 --yaw 0 --frame-id link5 --child-frame-id camera_link
   python3 nodes/real_robot/test_delivery_motion.py
@@ -248,7 +248,9 @@ class DeliveryTestNode(Node):
             self.create_subscription(
                 ImageMsg, '/camera/camera/color/image_raw', self._cb_image, 10)
             self.create_subscription(
-                ImageMsg, '/camera/camera/depth/image_rect_raw', self._cb_depth, 10)
+                # aligned_depth_to_color: 컬러와 동일 해상도(640×480)로 픽셀 1:1 대응
+                # realsense 실행 시 align_depth.enable:=true 필요
+                ImageMsg, '/camera/camera/aligned_depth_to_color/image_raw', self._cb_depth, 10)
             self.create_subscription(
                 CameraInfo, '/camera/camera/color/camera_info', self._cb_camera_info, 10)
             threading.Thread(target=self._yolo_display_loop, daemon=True).start()
