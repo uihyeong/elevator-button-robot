@@ -106,7 +106,7 @@ JOINT_NAMES   = ['joint1', 'joint2', 'joint3', 'joint4']
 HOME_JOINTS         = [3.141, -1.3963,  1.2217,  0.5236]
 BASKET_LOOK_JOINTS  = [3.142, -0.546,   0.802,   0.744]   # 바구니 확인용 (joint4 틸트)
 TABLE_LOOK_JOINTS   = [1.571, -1.3963,  1.2217,  0.5236]  # 책상 확인용 (joint1 오른쪽 90°)
-GRIPPER_OPEN  = [0.020]
+GRIPPER_OPEN  = [0.015]   # 최대 0.019까지 가능 (joint limit)
 GRIPPER_CLOSE = [-0.005]   # TODO: 박스 크기에 맞게 조정
 MOVE_SPEED    = 0.4
 MIN_DURATION  = 2.0
@@ -473,8 +473,8 @@ class DeliveryTestNode(Node):
 
         goal = GripperCommand.Goal()
         goal.command.position   = position[0]
-        # 열기: 높은 effort로 확실히 열림 / 닫기: 낮은 effort로 박스 stall 감지
-        goal.command.max_effort = 100.0 if position[0] > 0 else 10.0
+        # 열기: 50.0 / 닫기: 10.0 (박스 stall 감지)
+        goal.command.max_effort = 50.0 if position[0] > 0 else 10.0
 
         future = self._gripper_client.send_goal_async(goal)
         deadline = time.time() + 10.0
