@@ -78,7 +78,7 @@ YOLO_MODEL_PATH = 'yolov8n.pt'
 YOLO_CONF         = 0.15   # 낮을수록 더 잘 감지 (오탐 증가)
 GRAB_HOVER_OFFSET = 0.04   # 감지 지점 위 4cm 호버 후 하강
 DETECT_Z_OFFSET   = -0.02  # Z 보정: 팔이 위 → 음수↑, 아래(바닥 끌림) → 양수↑
-DETECT_Y_OFFSET   = -0.07  # Y 보정: 너무 멀리 감 → 음수로 줄임
+DETECT_Y_OFFSET   = -0.05  # Y 보정: 너무 멀리 감 → 음수로 줄임
 
 # 감지 대상 클래스 (초록 강조)
 HIGHLIGHT_CLASSES = {
@@ -392,15 +392,10 @@ class DeliveryTestNode(Node):
         Y += DETECT_Y_OFFSET   # Y 거리 오차 보정
         print(f'  world=({X:.3f},{Y:.3f},{Z:.3f})  depth={d:.3f}m  (Z{DETECT_Z_OFFSET:+.3f} Y{DETECT_Y_OFFSET:+.3f})')
 
-        # 호버 후 하강 → 그리퍼 닫기
+        # 호버 위치로 이동 → 바로 그리퍼 닫기 (하강 없음)
         ok = self.move_to_xyz(X, Y, Z + GRAB_HOVER_OFFSET, label='감지 호버')
         if not ok:
             print('  ⚠️  호버 IK 실패 → 폴백')
-            return self._fallback_grab(fallback_xyz)
-
-        ok = self.move_to_xyz(X, Y, Z, label='감지 하강')
-        if not ok:
-            print('  ⚠️  하강 IK 실패 → 폴백')
             return self._fallback_grab(fallback_xyz)
 
         print('  그리퍼 닫기 (박스 잡기)')
