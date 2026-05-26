@@ -308,128 +308,6 @@ python3 nodes/real_robot/contact_detector.py
 
 ---
 
-## 야간 무인 배달 — 문고리 에코백 배달·회수
-
-### 시나리오
-
-쿠팡 등 새벽 배달(03~05시) 업무를 로봇이 대신합니다.  
-Scout Mini 상판 바구니에 실린 에코백을 로봇팔이 집어  
-아파트 현관 레버 손잡이에 걸어두고, 이후 빈 가방을 회수합니다.
-
-```
-[배달]
-Scout Mini 바구니에서 에코백 집기
-        ↓
-문 앞 이동 (팀원 파트)
-        ↓
-레버 오른쪽 끝 접근 → 왼쪽 슬라이딩 → 그리퍼 열기 (에코백 레버에 걸림)
-        ↓
-홈 복귀
-
-[회수]
-레버 안쪽에서 에코백 루프 잡기
-        ↓
-오른쪽 슬라이딩 (레버 끝으로 이탈)
-        ↓
-Scout Mini 바구니 위로 이동 → 내려놓기
-        ↓
-홈 복귀
-```
-
-### 레버 방향과 슬라이딩 전략
-
-```
-  문
-  │
-  │────────╮  ← 레버 (오른쪽으로 뻗음)
-  │        │
-  │        ╰ 레버 끝 (+Y 방향)
-
-  오른쪽 끝 → 왼쪽 슬라이딩으로 루프를 레버 축에 끼움
-```
-
-- `-X` = 팔이 향하는 방향 (문 쪽)  
-- `+Y` = 오른쪽 (레버가 뻗어 있는 방향)  
-- 슬라이딩 시 `joint1` 만 회전, `joint2/3/4` 고정 → 팔이 몸 쪽으로 호형을 그리며 들어오는 현상 방지
-
-### 웨이포인트 (실측 후 교체 필요)
-
-| 상수 | 기본값 (XYZ, m) | 설명 |
-|------|----------------|------|
-| `BASKET_HOVER` | (-0.20, 0.00, 0.12) | 바구니 위 대기 |
-| `BASKET_GRIP` | (-0.20, 0.00, 0.05) | 에코백 손잡이 잡기 |
-| `HANDLE_SIDE` | (-0.20, 0.20, 0.23) | 레버 끝 바깥쪽 (슬라이딩 시작) |
-| `HANDLE_INSERT` | (-0.20, 0.07, 0.23) | 슬라이딩 완료 위치 (레버 안쪽) |
-
-### 실행
-
-#### 단계별 데모 (실측용 권장)
-
-```bash
-# 터미널 1 — 하드웨어 컨트롤러
-ros2 launch open_manipulator_x_bringup hardware.launch.py
-
-# 터미널 2 — 데모 스크립트 (Enter로 한 스텝씩 진행)
-python3 nodes/real_robot/test_delivery_motion.py
-```
-
-| 키 | 동작 |
-|----|------|
-| `Enter` | 현재 스텝 실행 |
-| `q` | 즉시 종료 (홈 복귀) |
-| `r` | 처음부터 다시 |
-
-메뉴에서 `1` → 배달 시퀀스, `2` → 회수 시퀀스를 선택합니다.
-
-##### 배달 시퀀스 (10 스텝)
-
-| # | 동작 |
-|---|------|
-| 1 | 홈 |
-| 2 | 그리퍼 열기 |
-| 3 | 바구니 위 이동 |
-| 4 | 바구니 하강 (에코백 손잡이 위치) |
-| 5 | 그리퍼 닫기 |
-| 6 | 바구니 위 들어올리기 |
-| 7 | 레버 끝 오른쪽 접근 |
-| 8 | 왼쪽 슬라이딩 (joint1만 회전) |
-| 9 | 그리퍼 열기 (에코백 놓기) |
-| 10 | 홈 복귀 |
-
-##### 회수 시퀀스 (10 스텝)
-
-| # | 동작 |
-|---|------|
-| 1 | 홈 |
-| 2 | 그리퍼 열기 |
-| 3 | 루프 집기 위치 (레버 안쪽) |
-| 4 | 그리퍼 닫기 |
-| 5 | 오른쪽 슬라이딩 (레버 이탈) |
-| 6 | 바구니 위 이동 |
-| 7 | 바구니 하강 |
-| 8 | 그리퍼 열기 (에코백 놓기) |
-| 9 | 바구니 위 후퇴 |
-| 10 | 홈 복귀 |
-
-#### 자동 실행 노드 (`real_robot_delivery.py`)
-
-ROS2 토픽으로 원격 트리거합니다.
-
-```bash
-# 터미널 2 — 배달 노드
-python3 nodes/real_robot/real_robot_delivery.py
-
-# 배달 명령
-ros2 topic pub --once /delivery_command std_msgs/String "{data: DELIVER}"
-
-# 회수 명령
-ros2 topic pub --once /delivery_command std_msgs/String "{data: RETRIEVE}"
-```
-
-상태는 `/delivery_status` 토픽으로 확인합니다.
-
----
-
 ## 실행 방법 (Isaac Sim 시뮬레이션)
 
 Isaac Sim 실행 후 Play ▶️ 를 누른 뒤:
@@ -468,8 +346,7 @@ elevator-button-robot/
 │   ├── real_robot/
 │   │   ├── real_robot_unified.py       # ★ YOLO 통합 노드 (UP/DOWN → 숫자 전체 시퀀스)
 │   │   ├── real_robot_gemini_vlm.py    # ★ Gemini VLM 통합 노드 (zero-shot, 권장)
-│   │   ├── real_robot_delivery.py      # ★ 야간 배달 노드 (에코백 걸기·회수)
-│   │   ├── test_delivery_motion.py     # 배달 모션 단계별 데모 (실측용)
+│   │   ├── test_delivery_motion.py     # ★ 픽업/배달 데모 (책상→바구니→목적지, 실측 완성)
 │   │   ├── test_gemini_detection.py    # Gemini 인식 단독 테스트 (ROS2 불필요)
 │   │   ├── contact_detector.py         # 접촉 감지 — Effort Threshold 방식
 │   │   ├── contact_detector_svm.py     # ★ 접촉 감지 — SVM 방식 (권장)
