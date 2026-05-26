@@ -473,7 +473,8 @@ class DeliveryTestNode(Node):
 
         goal = GripperCommand.Goal()
         goal.command.position   = position[0]
-        goal.command.max_effort = 10.0  # 박스 접촉 시 stall 감지 후 자동 종료 (너무 낮으면 안 닫힘)
+        # 열기: 높은 effort로 확실히 열림 / 닫기: 낮은 effort로 박스 stall 감지
+        goal.command.max_effort = 100.0 if position[0] > 0 else 10.0
 
         future = self._gripper_client.send_goal_async(goal)
         deadline = time.time() + 10.0
