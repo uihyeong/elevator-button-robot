@@ -345,12 +345,12 @@ class DeliveryTestNode(Node):
             print('  ⚠️  박스 감지 실패 → 폴백')
             return self._fallback_grab(fallback_xyz)
 
-        # 픽셀 중심
+        # 픽셀: X는 중심, Y는 바운딩박스 하단 75% 지점 (박스 아랫부분 높이 기준으로 잡기)
         x1, y1, x2, y2 = map(int, best_box.xyxy[0])
         cx_px = (x1 + x2) // 2
-        cy_px = (y1 + y2) // 2
+        cy_px = y1 + int((y2 - y1) * 0.75)   # 상단에서 75% 아래 = 박스 하단부
         cls_name = results.names[int(best_box.cls)]
-        print(f'  감지: {cls_name} {best_conf:.2f}  pixel=({cx_px},{cy_px})')
+        print(f'  감지: {cls_name} {best_conf:.2f}  pixel=({cx_px},{cy_px})  bbox=({x1},{y1},{x2},{y2})')
 
         # 뎁스
         with self.lock:
