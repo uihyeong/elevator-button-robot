@@ -1,10 +1,38 @@
 """
 배달 모션 데모 테스트.
 
-실측 전에 팔 + 그리퍼 동작 흐름을 확인하기 위한 스크립트.
+시퀀스:
+  [픽업]
+    1. 홈
+    2. 그리퍼 열기
+    3. 책상 방향 확인 (TABLE_LOOK_JOINTS — joint1 오른쪽 90°)
+    4. [자동] YOLO 박스 감지 → IK → 하강 → 그리퍼 닫기
+    5. 박스 들어올리기 (TABLE_LOOK_JOINTS — 오른쪽 유지)
+    6. 바구니에 내려놓기
+    7. 그리퍼 열기
+    8. 바구니 위 후퇴
+    9. 홈 복귀
+
+  [Scout Mini 이동]  ← 외부 단계
+
+  [배달]
+    1. 홈
+    2. 그리퍼 열기
+    3. 바구니 위 이동
+    4. 바구니 확인 (BASKET_LOOK_JOINTS — joint4 틸트)
+    5. [자동] YOLO 박스 감지 → IK → 하강 → 그리퍼 닫기
+    6. 박스 들어올리기
+    7. 목적지 책상 위 호버
+    8. 목적지에 내려놓기
+    9. 그리퍼 열기
+   10. 목적지 위 후퇴
+   11. 홈 복귀
 
 실행:
   ros2 launch open_manipulator_x_bringup hardware.launch.py
+  ros2 launch realsense2_camera rs_launch.py
+  ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.01 --z 0.062 \\
+      --roll 0 --pitch 0 --yaw 0 --frame-id link5 --child-frame-id camera_link
   python3 nodes/real_robot/test_delivery_motion.py
 
 조작:
@@ -17,13 +45,44 @@ import math
 import threading
 import time
 
+import numpy as np
 import rclpy
+import rclpy.time
+import tf2_ros
+import tf2_geometry_msgs
 from builtin_interfaces.msg import Duration
 from control_msgs.action import FollowJointTrajectory, GripperCommand
+from geometry_msgs.msg import PointStamped
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import CameraInfo, JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+
+# ─── YOLO / 카메라 (선택적 임포트) ───────────────────────────────────────────
+
+try:
+    from ultralytics import YOLO as UltralyticsYOLO
+    _YOLO_AVAILABLE = True
+except ImportError:
+    _YOLO_AVAILABLE = False
+
+try:
+    import cv2
+    from cv_bridge import CvBridge
+    from sensor_msgs.msg import Image as ImageMsg
+    _CAMERA_AVAILABLE = True
+except ImportError:
+    _CAMERA_AVAILABLE = False
+
+YOLO_MODEL_PATH = 'yolov8n.pt'
+YOLO_CONF       = 0.4
+GRAB_HOVER_OFFSET = 0.06   # 감지 지점 위 6cm에서 먼저 접근 후 하강
+
+# 감지 대상 클래스 (초록 강조)
+HIGHLIGHT_CLASSES = {
+    'suitcase', 'backpack', 'handbag',
+    'book', 'bottle', 'cup', 'bowl', 'box',
+}
 
 # ─── 링크 파라미터 ────────────────────────────────────────────────────────────
 
@@ -41,24 +100,24 @@ JOINT_LIMITS = [
 ]
 
 JOINT_NAMES   = ['joint1', 'joint2', 'joint3', 'joint4']
-GRIPPER_NAMES = ['gripper']
-HOME_JOINTS   = [-3.141, -0.9948, 0.6981, 0.2967]
-GRIPPER_OPEN  = [0.01]    # rad
-GRIPPER_CLOSE = [-0.005]  # rad (에코백 손잡이 두께에 맞게 조정)
-MOVE_SPEED    = 0.4       # 데모용 느리게
+HOME_JOINTS         = [3.141, -1.3963,  1.2217,  0.5236]
+BASKET_LOOK_JOINTS  = [3.142, -0.546,   0.802,   0.744]   # 바구니 확인용 (joint4 틸트)
+TABLE_LOOK_JOINTS   = [1.571, -1.3963,  1.2217,  0.5236]  # 책상 확인용 (joint1 오른쪽 90°)
+GRIPPER_OPEN  = [0.01]
+GRIPPER_CLOSE = [-0.005]   # TODO: 박스 크기에 맞게 조정
+MOVE_SPEED    = 0.4
 MIN_DURATION  = 2.0
 
-# ─── 데모 웨이포인트 ──────────────────────────────────────────────────────────
-# 좌표 부호 기준 (joint1 = -π 홈 기준):
-#   -X = 팔이 향하는 방향 (문/엘리베이터 방향)
-#   +Y = 오른쪽 (문 바라볼 때 레버 있는 쪽)
+# ─── 웨이포인트 ───────────────────────────────────────────────────────────────
 
-BASKET_HOVER  = (-0.20,  0.00, 0.12)  # 바구니 위       (TODO: 실측)
-BASKET_GRIP   = (-0.20,  0.00, 0.05)  # 에코백 손잡이   (TODO: 실측)
+TABLE_HOVER  = (-0.25,  0.00,  0.20)  # TODO: 실측
+TABLE_GRIP   = (-0.25,  0.00,  0.10)  # TODO: 실측 (AUTO_GRAB 실패 시 폴백)
 
-HANDLE_SIDE   = (-0.20,  0.20, 0.23)  # 레버 끝 오른쪽 바깥
-HANDLE_INSERT = (-0.20,  0.07, 0.23)  # 슬라이딩 후 (레버 안쪽)
-HANDLE_HANG   = (-0.20,  0.07, 0.15)  # 하강 (루프 안착, 더 내려옴)
+BASKET_HOVER = (-0.20,  0.00,  0.15)  # TODO: 실측
+BASKET_PLACE = (-0.20,  0.00,  0.07)  # TODO: 실측 (AUTO_GRAB 실패 시 폴백)
+
+DEST_HOVER   = (-0.25,  0.00,  0.20)  # TODO: 실측
+DEST_PLACE   = (-0.25,  0.00,  0.10)  # TODO: 실측
 
 # ─── IK ──────────────────────────────────────────────────────────────────────
 
@@ -103,44 +162,44 @@ def make_trajectory(target_joints, current_joints):
     traj.points.append(pt)
     return traj, duration
 
-# ─── 슬라이딩 전용 조인트 (joint1만 회전, joint2/3/4 고정) ──────────────────
-# HANDLE_SIDE → HANDLE_INSERT 이동 시 joint2 고정 → 몸쪽 진입 방지
-_j_side = solve_ik(*HANDLE_SIDE)
-HANDLE_SLIDE_JOINTS = None
-if _j_side:
-    _j1_insert = math.atan2(HANDLE_INSERT[1], HANDLE_INSERT[0])
-    HANDLE_SLIDE_JOINTS = [_j1_insert, _j_side[1], _j_side[2], _j_side[3]]
+# ─── AUTO_GRAB sentinel ───────────────────────────────────────────────────────
+
+class _AutoGrab:
+    """YOLO 감지 → IK → 잡기 자동화. joints 필드에 넣어 사용."""
+    def __init__(self, fallback_xyz):
+        self.fallback_xyz = fallback_xyz  # 감지 실패 시 폴백 좌표
+
+# 픽업용 (책상 위 박스) / 배달용 (바구니 안 박스)
+AUTO_GRAB_TABLE  = _AutoGrab(TABLE_GRIP)
+AUTO_GRAB_BASKET = _AutoGrab(BASKET_PLACE)
 
 # ─── 시퀀스 정의 ─────────────────────────────────────────────────────────────
-# 스텝 형식: (label, joints, xyz, gripper)
-#   joints  : 관절값 리스트 or None
-#   xyz     : (X, Y, Z) 튜플 or None
-#   gripper : GRIPPER_OPEN / GRIPPER_CLOSE / None (생략)
 
-DELIVER_STEPS = [
-    ('홈',                        HOME_JOINTS,          None,          None),
-    ('그리퍼 열기',                None,                 None,          GRIPPER_OPEN),
-    ('바구니 위',                  None,                 BASKET_HOVER,  None),
-    ('바구니 하강',                None,                 BASKET_GRIP,   None),
-    ('그리퍼 닫기 (에코백 잡기)', None,                 None,          GRIPPER_CLOSE),
-    ('바구니 위 들어올리기',       None,                 BASKET_HOVER,  None),
-    ('레버 끝 오른쪽 접근',        None,                 HANDLE_SIDE,   None),
-    ('왼쪽 슬라이딩 (j1만 회전)', HANDLE_SLIDE_JOINTS,  None,          None),
-    ('그리퍼 열기 (에코백 놓기)', None,                 None,          GRIPPER_OPEN),
-    ('홈 복귀',                    HOME_JOINTS,          None,          None),
+PICKUP_STEPS = [
+    ('홈',                             HOME_JOINTS,        None,         None),
+    ('그리퍼 열기',                     None,               None,         GRIPPER_OPEN),
+    ('책상 방향 확인 (joint1 오른쪽)',   TABLE_LOOK_JOINTS,  None,         None),
+    ('박스 감지 → 잡기  [AUTO]',        AUTO_GRAB_TABLE,    None,         None),
+    ('박스 들어올리기 (오른쪽)',         TABLE_LOOK_JOINTS,  None,         None),  # joint1=1.571 유지하며 들어올리기
+    ('바구니에 내려놓기',                None,               BASKET_PLACE, None),
+    ('그리퍼 열기 (박스 놓기)',          None,               None,         GRIPPER_OPEN),
+    ('바구니 위 후퇴',                   None,               BASKET_HOVER, None),
+    ('홈 복귀',                          HOME_JOINTS,        None,         None),
 ]
 
-RETRIEVE_STEPS = [
-    ('홈',                        HOME_JOINTS,  None,          None),
-    ('그리퍼 열기',                None,         None,          GRIPPER_OPEN),
-    ('루프 집기 위치',             None,         HANDLE_INSERT, None),
-    ('그리퍼 닫기 (루프 잡기)',    None,         None,          GRIPPER_CLOSE),
-    ('오른쪽 슬라이딩 (이탈)',     None,         HANDLE_SIDE,   None),
-    ('바구니 위',                  None,         BASKET_HOVER,  None),
-    ('바구니 하강',                None,         BASKET_GRIP,   None),
-    ('그리퍼 열기 (에코백 놓기)',  None,         None,          GRIPPER_OPEN),
-    ('바구니 위 후퇴',             None,         BASKET_HOVER,  None),
-    ('홈 복귀',                    HOME_JOINTS,  None,          None),
+DELIVER_STEPS = [
+    ('홈',                              HOME_JOINTS,        None,         None),
+    ('그리퍼 열기',                      None,               None,         GRIPPER_OPEN),
+    ('바구니 위 이동',                   None,               BASKET_HOVER, None),
+    ('바구니 확인 (joint4 틸트)',         BASKET_LOOK_JOINTS, None,         None),
+    ('박스 감지 → 잡기  [AUTO]',         AUTO_GRAB_BASKET,   None,         None),
+    ('박스 들어올리기',                   None,               BASKET_HOVER,      None),
+    ('목적지 방향 확인 (joint1 오른쪽)',  TABLE_LOOK_JOINTS,  None,              None),
+    ('목적지 책상 위 호버',               None,               DEST_HOVER,        None),
+    ('목적지에 내려놓기',                 None,               DEST_PLACE,   None),
+    ('그리퍼 열기 (박스 놓기)',           None,               None,         GRIPPER_OPEN),
+    ('목적지 위 후퇴',                    None,               DEST_HOVER,   None),
+    ('홈 복귀',                           HOME_JOINTS,        None,         None),
 ]
 
 # ─── 테스트 노드 ──────────────────────────────────────────────────────────────
@@ -152,20 +211,201 @@ class DeliveryTestNode(Node):
         self.lock           = threading.Lock()
         self.current_joints = None
 
+        # 액션 클라이언트
         self._arm_client = ActionClient(
             self, FollowJointTrajectory,
             '/arm_controller/follow_joint_trajectory')
-
         self._gripper_client = ActionClient(
             self, GripperCommand,
             '/gripper_controller/gripper_cmd')
 
+        # 관절 상태
         self.create_subscription(JointState, '/joint_states', self._cb_joints, 10)
+
+        # 카메라 파라미터
+        self.depth_image = None
+        self.fx, self.fy = 615.0, 615.0
+        self.cx, self.cy = 320.0, 240.0
+
+        # TF
+        self.tf_buffer   = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+
+        # YOLO 시각화 + 감지
+        self._yolo_model   = None
+        self._latest_frame = None
+        self._frame_lock   = threading.Lock()
+        self.bridge        = None
+        self._current_step = '대기 중'
+
+        if _YOLO_AVAILABLE and _CAMERA_AVAILABLE:
+            self.get_logger().info(f'YOLO 모델 로드 중: {YOLO_MODEL_PATH}')
+            self._yolo_model = UltralyticsYOLO(YOLO_MODEL_PATH)
+            self.bridge = CvBridge()
+            self.create_subscription(
+                ImageMsg, '/camera/camera/color/image_raw', self._cb_image, 10)
+            self.create_subscription(
+                ImageMsg, '/camera/camera/depth/image_rect_raw', self._cb_depth, 10)
+            self.create_subscription(
+                CameraInfo, '/camera/camera/color/camera_info', self._cb_camera_info, 10)
+            threading.Thread(target=self._yolo_display_loop, daemon=True).start()
+            self.get_logger().info('✅ YOLO 시각화 + AUTO_GRAB 활성화')
+        else:
+            self.get_logger().warn(
+                'YOLO 비활성화 — AUTO_GRAB은 폴백 좌표로 동작')
+
         self.get_logger().info('테스트 노드 시작. 2초 후 홈 이동...')
+
+    # ─── 콜백 ────────────────────────────────────────────────────────────────
 
     def _cb_joints(self, msg):
         with self.lock:
             self.current_joints = msg
+
+    def _cb_image(self, msg):
+        frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+        with self._frame_lock:
+            self._latest_frame = frame
+
+    def _cb_depth(self, msg):
+        with self.lock:
+            raw = self.bridge.imgmsg_to_cv2(msg, desired_encoding='16UC1')
+            self.depth_image = raw.astype(np.float32) / 1000.0
+
+    def _cb_camera_info(self, msg):
+        self.fx = msg.k[0]; self.fy = msg.k[4]
+        self.cx = msg.k[2]; self.cy = msg.k[5]
+
+    # ─── YOLO 시각화 루프 ────────────────────────────────────────────────────
+
+    def _yolo_display_loop(self):
+        while rclpy.ok():
+            with self._frame_lock:
+                frame = self._latest_frame
+            if frame is None:
+                time.sleep(0.05)
+                continue
+
+            results = self._yolo_model(frame, conf=YOLO_CONF, verbose=False)[0]
+            vis = frame.copy()
+            for box in results.boxes:
+                cls_name = results.names[int(box.cls)]
+                conf     = float(box.conf)
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                color = (0, 255, 0) if cls_name in HIGHLIGHT_CLASSES else (160, 160, 160)
+                cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(vis, f'{cls_name} {conf:.2f}',
+                            (x1, max(y1 - 8, 12)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+            cv2.putText(vis, f'Step: {self._current_step}',
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            cv2.putText(vis, 'YOLOv8n  Delivery Demo',
+                        (10, vis.shape[0] - 12),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1)
+            cv2.imshow('Delivery YOLO', vis)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+            time.sleep(0.05)
+
+    # ─── AUTO_GRAB: YOLO 감지 → 3D 변환 → IK → 잡기 ─────────────────────────
+
+    def _detect_and_grab(self, fallback_xyz) -> bool:
+        """YOLO로 박스 감지 후 IK로 잡기. 실패 시 fallback_xyz로 폴백."""
+
+        # YOLO / 카메라 미활성화 → 폴백
+        if self._yolo_model is None:
+            print('  ⚠️  YOLO 비활성화 → 폴백 좌표로 이동')
+            return self._fallback_grab(fallback_xyz)
+
+        # 최신 프레임 확보
+        with self._frame_lock:
+            frame = self._latest_frame
+        if frame is None:
+            print('  ⚠️  카메라 프레임 없음 → 폴백')
+            return self._fallback_grab(fallback_xyz)
+
+        # YOLO 추론
+        results = self._yolo_model(frame, conf=YOLO_CONF, verbose=False)[0]
+        best_box, best_conf = None, 0.0
+        for box in results.boxes:
+            cls_name = results.names[int(box.cls)]
+            conf     = float(box.conf)
+            if cls_name in HIGHLIGHT_CLASSES and conf > best_conf:
+                best_conf = conf
+                best_box  = box
+
+        if best_box is None:
+            print('  ⚠️  박스 감지 실패 → 폴백')
+            return self._fallback_grab(fallback_xyz)
+
+        # 픽셀 중심
+        x1, y1, x2, y2 = map(int, best_box.xyxy[0])
+        cx_px = (x1 + x2) // 2
+        cy_px = (y1 + y2) // 2
+        cls_name = results.names[int(best_box.cls)]
+        print(f'  감지: {cls_name} {best_conf:.2f}  pixel=({cx_px},{cy_px})')
+
+        # 뎁스
+        with self.lock:
+            depth = self.depth_image.copy() if self.depth_image is not None else None
+        if depth is None:
+            print('  ⚠️  뎁스 없음 → 폴백')
+            return self._fallback_grab(fallback_xyz)
+
+        h, w = depth.shape
+        region = depth[max(0, cy_px-2):min(h, cy_px+3),
+                       max(0, cx_px-2):min(w, cx_px+3)]
+        valid = region[(region > 0.1) & ~np.isnan(region)]
+        if len(valid) == 0:
+            print('  ⚠️  뎁스값 없음 → 폴백')
+            return self._fallback_grab(fallback_xyz)
+        d = float(np.median(valid))
+
+        # 카메라 3D 좌표
+        X_cam = (cx_px - self.cx) / self.fx * d
+        Y_cam = (cy_px - self.cy) / self.fy * d
+
+        # TF 변환 (camera → world)
+        pt_cam = PointStamped()
+        pt_cam.header.frame_id = 'camera_color_optical_frame'
+        pt_cam.header.stamp    = rclpy.time.Time().to_msg()
+        pt_cam.point.x = X_cam
+        pt_cam.point.y = Y_cam
+        pt_cam.point.z = d
+        try:
+            pt_w = self.tf_buffer.transform(pt_cam, 'world')
+            X, Y, Z = pt_w.point.x, pt_w.point.y, pt_w.point.z
+        except Exception as e:
+            print(f'  ⚠️  TF 변환 실패: {e} → 폴백')
+            return self._fallback_grab(fallback_xyz)
+
+        print(f'  world=({X:.3f},{Y:.3f},{Z:.3f})  depth={d:.3f}m')
+
+        # 호버 후 하강 → 그리퍼 닫기
+        ok = self.move_to_xyz(X, Y, Z + GRAB_HOVER_OFFSET, label='감지 호버')
+        if not ok:
+            print('  ⚠️  호버 IK 실패 → 폴백')
+            return self._fallback_grab(fallback_xyz)
+
+        ok = self.move_to_xyz(X, Y, Z, label='감지 하강')
+        if not ok:
+            print('  ⚠️  하강 IK 실패 → 폴백')
+            return self._fallback_grab(fallback_xyz)
+
+        print('  그리퍼 닫기 (박스 잡기)')
+        self.send_gripper(GRIPPER_CLOSE)
+        time.sleep(0.3)
+        return True
+
+    def _fallback_grab(self, xyz) -> bool:
+        """폴백: 하드코딩 좌표로 이동 후 잡기."""
+        print(f'  폴백 좌표: {xyz}')
+        ok = self.move_to_xyz(*xyz, label='폴백 하강')
+        if ok:
+            self.send_gripper(GRIPPER_CLOSE)
+            time.sleep(0.3)
+        return ok
 
     # ─── 팔 이동 ─────────────────────────────────────────────────────────────
 
@@ -227,8 +467,8 @@ class DeliveryTestNode(Node):
             return False
 
         goal = GripperCommand.Goal()
-        goal.command.position   = position[0]  # rad
-        goal.command.max_effort = 0.0           # 제한 없음
+        goal.command.position   = position[0]
+        goal.command.max_effort = 10.0  # 박스 접촉 시 stall 감지 후 자동 종료 (너무 낮으면 안 닫힘)
 
         future = self._gripper_client.send_goal_async(goal)
         deadline = time.time() + 10.0
@@ -263,31 +503,42 @@ class DeliveryTestNode(Node):
 
         for i, (label, joints, xyz, gripper) in enumerate(steps):
             print(f'\n[{i+1}/{len(steps)}] {label}')
+            self._current_step = f'[{i+1}/{len(steps)}] {label}'
 
             key = input('  Enter: 실행 / q: 종료 / r: 처음부터 > ').strip().lower()
             if key == 'q':
                 print('  종료 → 홈 복귀')
+                self._current_step = '홈 복귀 중'
                 self.move_to_joints(HOME_JOINTS, 'home')
                 return 'quit'
             if key == 'r':
                 return 'restart'
 
-            # 그리퍼 동작
+            # 그리퍼
             if gripper is not None:
                 label_g = '열기' if gripper == GRIPPER_OPEN else '닫기'
                 print(f'  그리퍼 {label_g} ({gripper[0]} rad)')
                 self.send_gripper(gripper)
                 time.sleep(0.3)
 
-            # 팔 이동
-            if joints is not None:
+            # AUTO_GRAB sentinel
+            if isinstance(joints, _AutoGrab):
+                self._detect_and_grab(joints.fallback_xyz)
+            # 관절 직접 지정
+            elif joints is not None:
                 self.move_to_joints(joints, label)
+                if joints is HOME_JOINTS:
+                    time.sleep(0.2)
+                    print('  그리퍼 닫기 (홈 자세 자동)')
+                    self.send_gripper(GRIPPER_CLOSE)
+            # XYZ → IK
             elif xyz is not None:
                 if solve_ik(*xyz) is None:
                     print(f'  ⚠️  IK 불가 {xyz} → 스킵')
                 else:
                     self.move_to_xyz(*xyz, label=label)
 
+        self._current_step = f'{name} 완료'
         print(f'\n✅ {name} 시퀀스 완료!\n')
         return 'done'
 
@@ -305,38 +556,38 @@ def main():
     print('\n홈 포지션으로 이동...')
     node.move_to_joints(HOME_JOINTS, 'home')
 
-    # IK 사전 확인
     print('\n─── 웨이포인트 IK 확인 ───')
     all_ok = True
     for name, xyz in [
-        ('BASKET_HOVER',  BASKET_HOVER),
-        ('BASKET_GRIP',   BASKET_GRIP),
-        ('HANDLE_SIDE',   HANDLE_SIDE),
-        ('HANDLE_INSERT', HANDLE_INSERT),
-        ('HANDLE_HANG',   HANDLE_HANG),
+        ('TABLE_HOVER',  TABLE_HOVER),
+        ('TABLE_GRIP',   TABLE_GRIP),
+        ('BASKET_HOVER', BASKET_HOVER),
+        ('BASKET_PLACE', BASKET_PLACE),
+        ('DEST_HOVER',   DEST_HOVER),
+        ('DEST_PLACE',   DEST_PLACE),
     ]:
         j = solve_ik(*xyz)
         status = '✅' if j else '❌ IK 불가'
-        print(f'  {name:14s} {str(xyz):30s} {status}')
+        print(f'  {name:14s} {str(xyz):35s} {status}')
         if not j:
             all_ok = False
-
-    print('\n모든 웨이포인트 IK 가능 ✅' if all_ok else '\n⚠️  IK 불가 웨이포인트 있음. 해당 스텝은 건너뜁니다.')
+    print('\n모든 웨이포인트 IK 가능 ✅' if all_ok
+          else '\n⚠️  IK 불가 웨이포인트 있음. 해당 스텝은 건너뜁니다.')
 
     while True:
         print('\n─── 메뉴 ───')
-        print('  1. 배달 (DELIVER) 시퀀스')
-        print('  2. 회수 (RETRIEVE) 시퀀스')
+        print('  1. 픽업  (PICKUP)  — 책상 박스 → 바구니')
+        print('  2. 배달  (DELIVER) — 바구니 → 목적지 책상')
         print('  h. 홈 복귀')
         print('  q. 종료')
         choice = input('선택 > ').strip().lower()
 
         if choice == '1':
-            result = node.run_sequence(DELIVER_STEPS, '배달')
+            result = node.run_sequence(PICKUP_STEPS, '픽업')
             if result == 'quit':
                 break
         elif choice == '2':
-            result = node.run_sequence(RETRIEVE_STEPS, '회수')
+            result = node.run_sequence(DELIVER_STEPS, '배달')
             if result == 'quit':
                 break
         elif choice == 'h':
@@ -345,6 +596,7 @@ def main():
             node.move_to_joints(HOME_JOINTS, 'home')
             break
 
+    cv2.destroyAllWindows()
     node.destroy_node()
     rclpy.shutdown()
 
