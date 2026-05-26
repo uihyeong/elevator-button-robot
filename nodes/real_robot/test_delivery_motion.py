@@ -106,8 +106,9 @@ JOINT_NAMES   = ['joint1', 'joint2', 'joint3', 'joint4']
 HOME_JOINTS         = [3.141, -1.3963,  1.2217,  0.5236]
 BASKET_LOOK_JOINTS  = [3.142, -0.546,   0.802,   0.744]   # 바구니 확인용 (joint4 틸트)
 TABLE_LOOK_JOINTS   = [1.571, -1.3963,  1.2217,  0.5236]  # 책상 확인용 (joint1 오른쪽 90°)
-GRIPPER_OPEN  = [0.038]   # 실측 최대 0.040 rad (여유 0.002)
-GRIPPER_CLOSE = [0.026]    # 실측: 박스 잡는 위치 (gripper_left_joint 0.026331)
+GRIPPER_OPEN  = [0.038]   # 실측 최대 0.040 rad
+GRIPPER_CLOSE = [0.026]   # 실측: 박스 잡는 위치 (gripper_left_joint 0.026331)
+GRIPPER_REST  = [0.000]   # 홈 자세용 중립 닫힘 (박스 없을 때)
 MOVE_SPEED    = 0.4
 MIN_DURATION  = 2.0
 
@@ -538,8 +539,8 @@ class DeliveryTestNode(Node):
                 self.move_to_joints(joints, label)
                 if joints is HOME_JOINTS:
                     time.sleep(0.2)
-                    print('  그리퍼 닫기 (홈 자세 자동)')
-                    self.send_gripper(GRIPPER_CLOSE)
+                    print('  그리퍼 중립 (홈 자세 자동)')
+                    self.send_gripper(GRIPPER_REST)
             # XYZ → IK
             elif xyz is not None:
                 if solve_ik(*xyz) is None:
