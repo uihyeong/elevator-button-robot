@@ -107,7 +107,7 @@ HOME_JOINTS         = [3.141, -1.3963,  1.2217,  0.5236]
 BASKET_LOOK_JOINTS  = [3.142, -0.546,   0.802,   0.744]   # 바구니 확인용 (joint4 틸트)
 TABLE_LOOK_JOINTS   = [1.571, -1.3963,  1.2217,  0.5236]  # 책상 확인용 (joint1 오른쪽 90°)
 GRIPPER_OPEN  = [0.038]   # 실측 최대 0.040 rad
-GRIPPER_CLOSE = [0.026]   # 실측: 박스 잡는 위치 (gripper_left_joint 0.026331)
+GRIPPER_CLOSE = [-0.010]  # 완전 닫기 시도 → 박스에 stall (max_effort=10.0)
 GRIPPER_REST  = [-0.005]  # 홈 자세용 닫힘 (스프링 방향, 튕김 없음)
 MOVE_SPEED    = 0.4
 MIN_DURATION  = 2.0
@@ -182,7 +182,6 @@ AUTO_GRAB_BASKET = _AutoGrab(BASKET_PLACE)
 # 스텝 형식: (한글 라벨, joints, xyz, gripper, 영어 라벨)
 PICKUP_STEPS = [
     ('홈',                             HOME_JOINTS,        None,         None,         'Home'),
-    ('그리퍼 열기',                     None,               None,         GRIPPER_OPEN, 'Gripper Open'),
     ('책상 방향 확인 (joint1 오른쪽)',   TABLE_LOOK_JOINTS,  None,         None,         'Look at Table'),
     ('박스 위 호버',                     None,               TABLE_HOVER,  None,         'Hover over Box'),
     ('박스 잡기 위치',                   None,               TABLE_GRIP,   None,         'Move to Grip'),
@@ -196,7 +195,6 @@ PICKUP_STEPS = [
 
 DELIVER_STEPS = [
     ('홈',                              HOME_JOINTS,        None,         None,         'Home'),
-    ('그리퍼 열기',                      None,               None,         GRIPPER_OPEN, 'Gripper Open'),
     ('바구니 위 이동',                   None,               BASKET_HOVER, None,         'Move to Basket'),
     ('바구니 확인 (joint4 틸트)',         BASKET_LOOK_JOINTS, None,         None,         'Look into Basket'),
     ('바구니 박스 잡기 위치',             None,               BASKET_PLACE, None,         'Move to Grip'),
@@ -540,10 +538,7 @@ class DeliveryTestNode(Node):
             # 관절 직접 지정
             elif joints is not None:
                 self.move_to_joints(joints, label)
-                if joints is HOME_JOINTS:
-                    time.sleep(0.2)
-                    print('  그리퍼 중립 (홈 자세 자동)')
-                    self.send_gripper(GRIPPER_REST)
+                pass
             # XYZ → IK
             elif xyz is not None:
                 if solve_ik(*xyz) is None:
