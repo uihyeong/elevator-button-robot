@@ -82,6 +82,7 @@ GRAB_HOVER_OFFSET = 0.06   # 감지 지점 위 6cm에서 먼저 접근 후 하�
 HIGHLIGHT_CLASSES = {
     'suitcase', 'backpack', 'handbag',
     'book', 'bottle', 'cup', 'bowl', 'box',
+    'refrigerator',  # COCO에 box 없음 → 직육면체 박스가 refrigerator로 오인식됨
 }
 
 # ─── 링크 파라미터 ────────────────────────────────────────────────────────────
@@ -175,31 +176,32 @@ AUTO_GRAB_BASKET = _AutoGrab(BASKET_PLACE)
 
 # ─── 시퀀스 정의 ─────────────────────────────────────────────────────────────
 
+# 스텝 형식: (한글 라벨, joints, xyz, gripper, 영어 라벨)
 PICKUP_STEPS = [
-    ('홈',                             HOME_JOINTS,        None,         None),
-    ('그리퍼 열기',                     None,               None,         GRIPPER_OPEN),
-    ('책상 방향 확인 (joint1 오른쪽)',   TABLE_LOOK_JOINTS,  None,         None),
-    ('박스 감지 → 잡기  [AUTO]',        AUTO_GRAB_TABLE,    None,         None),
-    ('박스 들어올리기 (오른쪽)',         TABLE_LOOK_JOINTS,  None,         None),  # joint1=1.571 유지하며 들어올리기
-    ('바구니에 내려놓기',                None,               BASKET_PLACE, None),
-    ('그리퍼 열기 (박스 놓기)',          None,               None,         GRIPPER_OPEN),
-    ('바구니 위 후퇴',                   None,               BASKET_HOVER, None),
-    ('홈 복귀',                          HOME_JOINTS,        None,         None),
+    ('홈',                             HOME_JOINTS,        None,         None,         'Home'),
+    ('그리퍼 열기',                     None,               None,         GRIPPER_OPEN, 'Gripper Open'),
+    ('책상 방향 확인 (joint1 오른쪽)',   TABLE_LOOK_JOINTS,  None,         None,         'Look at Table'),
+    ('박스 감지 → 잡기  [AUTO]',        AUTO_GRAB_TABLE,    None,         None,         'Detect & Grab [AUTO]'),
+    ('박스 들어올리기 (오른쪽)',         TABLE_LOOK_JOINTS,  None,         None,         'Lift Box'),
+    ('바구니에 내려놓기',                None,               BASKET_PLACE, None,         'Place in Basket'),
+    ('그리퍼 열기 (박스 놓기)',          None,               None,         GRIPPER_OPEN, 'Gripper Open'),
+    ('바구니 위 후퇴',                   None,               BASKET_HOVER, None,         'Retreat from Basket'),
+    ('홈 복귀',                          HOME_JOINTS,        None,         None,         'Home'),
 ]
 
 DELIVER_STEPS = [
-    ('홈',                              HOME_JOINTS,        None,         None),
-    ('그리퍼 열기',                      None,               None,         GRIPPER_OPEN),
-    ('바구니 위 이동',                   None,               BASKET_HOVER, None),
-    ('바구니 확인 (joint4 틸트)',         BASKET_LOOK_JOINTS, None,         None),
-    ('박스 감지 → 잡기  [AUTO]',         AUTO_GRAB_BASKET,   None,         None),
-    ('박스 들어올리기',                   None,               BASKET_HOVER,      None),
-    ('목적지 방향 확인 (joint1 오른쪽)',  TABLE_LOOK_JOINTS,  None,              None),
-    ('목적지 책상 위 호버',               None,               DEST_HOVER,        None),
-    ('목적지에 내려놓기',                 None,               DEST_PLACE,   None),
-    ('그리퍼 열기 (박스 놓기)',           None,               None,         GRIPPER_OPEN),
-    ('목적지 위 후퇴',                    None,               DEST_HOVER,   None),
-    ('홈 복귀',                           HOME_JOINTS,        None,         None),
+    ('홈',                              HOME_JOINTS,        None,         None,         'Home'),
+    ('그리퍼 열기',                      None,               None,         GRIPPER_OPEN, 'Gripper Open'),
+    ('바구니 위 이동',                   None,               BASKET_HOVER, None,         'Move to Basket'),
+    ('바구니 확인 (joint4 틸트)',         BASKET_LOOK_JOINTS, None,         None,         'Look into Basket'),
+    ('박스 감지 → 잡기  [AUTO]',         AUTO_GRAB_BASKET,   None,         None,         'Detect & Grab [AUTO]'),
+    ('박스 들어올리기',                   None,               BASKET_HOVER, None,         'Lift Box'),
+    ('목적지 방향 확인 (joint1 오른쪽)',  TABLE_LOOK_JOINTS,  None,         None,         'Look at Dest'),
+    ('목적지 책상 위 호버',               None,               DEST_HOVER,   None,         'Hover over Dest'),
+    ('목적지에 내려놓기',                 None,               DEST_PLACE,   None,         'Place at Dest'),
+    ('그리퍼 열기 (박스 놓기)',           None,               None,         GRIPPER_OPEN, 'Gripper Open'),
+    ('목적지 위 후퇴',                    None,               DEST_HOVER,   None,         'Retreat from Dest'),
+    ('홈 복귀',                           HOME_JOINTS,        None,         None,         'Home'),
 ]
 
 # ─── 테스트 노드 ──────────────────────────────────────────────────────────────
@@ -236,7 +238,8 @@ class DeliveryTestNode(Node):
         self._latest_frame = None
         self._frame_lock   = threading.Lock()
         self.bridge        = None
-        self._current_step = '대기 중'
+        self._current_step    = 'Waiting'
+        self._current_step_en = 'Waiting'
 
         if _YOLO_AVAILABLE and _CAMERA_AVAILABLE:
             self.get_logger().info(f'YOLO 모델 로드 중: {YOLO_MODEL_PATH}')
@@ -292,13 +295,14 @@ class DeliveryTestNode(Node):
                 cls_name = results.names[int(box.cls)]
                 conf     = float(box.conf)
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
-                color = (0, 255, 0) if cls_name in HIGHLIGHT_CLASSES else (160, 160, 160)
+                color        = (0, 255, 0) if cls_name in HIGHLIGHT_CLASSES else (160, 160, 160)
+                display_label = 'box' if cls_name in HIGHLIGHT_CLASSES else cls_name
                 cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(vis, f'{cls_name} {conf:.2f}',
+                cv2.putText(vis, f'{display_label} {conf:.2f}',
                             (x1, max(y1 - 8, 12)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-            cv2.putText(vis, f'Step: {self._current_step}',
+            cv2.putText(vis, f'Step: {self._current_step_en}',
                         (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
             cv2.putText(vis, 'YOLOv8n  Delivery Demo',
                         (10, vis.shape[0] - 12),
@@ -501,14 +505,17 @@ class DeliveryTestNode(Node):
         print(f' {name} 시퀀스 시작')
         print(f'{"="*50}')
 
-        for i, (label, joints, xyz, gripper) in enumerate(steps):
+        for i, step in enumerate(steps):
+            label, joints, xyz, gripper = step[0], step[1], step[2], step[3]
+            label_en = step[4] if len(step) > 4 else label
             print(f'\n[{i+1}/{len(steps)}] {label}')
-            self._current_step = f'[{i+1}/{len(steps)}] {label}'
+            self._current_step    = f'[{i+1}/{len(steps)}] {label}'
+            self._current_step_en = f'[{i+1}/{len(steps)}] {label_en}'
 
             key = input('  Enter: 실행 / q: 종료 / r: 처음부터 > ').strip().lower()
             if key == 'q':
                 print('  종료 → 홈 복귀')
-                self._current_step = '홈 복귀 중'
+                self._current_step_en = 'Going Home...'
                 self.move_to_joints(HOME_JOINTS, 'home')
                 return 'quit'
             if key == 'r':
@@ -538,7 +545,8 @@ class DeliveryTestNode(Node):
                 else:
                     self.move_to_xyz(*xyz, label=label)
 
-        self._current_step = f'{name} 완료'
+        self._current_step    = f'{name} 완료'
+        self._current_step_en = f'{name} Done'
         print(f'\n✅ {name} 시퀀스 완료!\n')
         return 'done'
 
