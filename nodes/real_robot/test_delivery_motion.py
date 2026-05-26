@@ -75,7 +75,7 @@ except ImportError:
     _CAMERA_AVAILABLE = False
 
 YOLO_MODEL_PATH = 'yolov8n.pt'
-YOLO_CONF         = 0.25   # 낮을수록 더 잘 감지 (오탐 증가)
+YOLO_CONF         = 0.15   # 낮을수록 더 잘 감지 (오탐 증가)
 GRAB_HOVER_OFFSET = 0.04   # 감지 지점 위 4cm 호버 후 하강
 DETECT_Z_OFFSET   = -0.07  # 카메라 TF 오차 보정 (팔이 박스 위로 가면 음수로 키움)
 
