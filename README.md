@@ -337,6 +337,16 @@ python3 nodes/real_robot/contact_detector.py
 | 11 | | 위로 호버 |
 | 12 | | 홈 복귀 |
 
+### 데모 영상
+
+<p align="center">
+  <img src="media/demo_pickup.gif" width="48%"/>
+  <img src="media/demo_delivery.gif" width="48%"/>
+</p>
+<p align="center">
+  <em>좌: 픽업 (책상 → 바구니) &nbsp;|&nbsp; 우: 배달 (바구니 → 목적지)</em>
+</p>
+
 ### 실행
 
 ```bash
