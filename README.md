@@ -1,8 +1,8 @@
 # 자율주행 택배 로봇 — 엘리베이터 버튼 인식 및 조작 시스템
 
 
-캡스톤디자인 프로젝트 — 자율주행 택배 로봇이 엘리베이터를 스스로 탑승할 수 있도록,  
-로봇팔이 카메라로 버튼을 인식하고 자동으로 누르는 시스템입니다.
+캡스톤디자인 프로젝트 — 자율주행 택배 로봇이 엘리베이터를 스스로 탑승하고 목적지까지 배달할 수 있도록,  
+로봇팔이 카메라로 버튼·호수를 인식하고 픽업·배달·엘리베이터 조작을 자동으로 수행하는 시스템입니다.
 
 ## 시스템 구성
 
@@ -44,20 +44,19 @@
 자율주행 로봇 Scout Mini (1층 복귀)
 ```
 
-### SW 블록 다이어그램
-
-<p align="center">
-  <img src="media/sw_block_diagram.svg" width="90%"/>
-</p>
+---
 
 ## 기술 스택
 
 | 분야 | 기술 |
 |------|------|
-| 로봇 플랫폼 | OpenMANIPULATOR-X |
-| 카메라 | Intel RealSense D435 |
-| AI/인식 | YOLOv8 (mAP50: 98.7%), YOLO-seg, EasyOCR, Gemini 2.5 Flash |
+| 로봇 플랫폼 | OpenMANIPULATOR-X (4-DOF) |
+| 자율주행 | Scout Mini |
+| 카메라 | Intel RealSense D435 (RGB-D) |
+| 버튼 인식 | YOLOv8 (mAP50: 98.7%), YOLO-seg + EasyOCR |
+| 호수 인식 | EasyOCR |
 | IK | 해석적 IK (수식 직접 계산, MoveIt2 불필요) |
+| 접촉 감지 | SVM (RBF 커널, F1: 0.812) |
 | 로봇 미들웨어 | ROS2 Humble |
 | 시뮬레이션 | Isaac Sim 5.1.0 |
 | 언어 | Python 3.10 |
@@ -67,30 +66,124 @@
 ## 전체 동작 흐름
 
 ```
-/target_floor 수신 (목표 층수)
+[픽업]
+책상 위 박스 감지 (YOLOv8n + Depth)
         ↓
-[Phase 1 — UP/DOWN]
-YOLOv8 또는 Gemini VLM → UP/DOWN 버튼 감지
+해석적 IK → 박스 집기 → Scout Mini 바구니에 내려놓기
+        ↓  /robot_status: PICKUP_DONE
+
+[엘리베이터 탑승]
+Scout Mini 엘리베이터 앞 도착 → /elevator_ready 수신
         ↓
-Depth 카메라 → 3D 좌표 추출 → 해석적 IK → 버튼 누르기
+YOLOv8 → UP/DOWN 버튼 감지
         ↓
-홈 복귀 → 버튼 점등 확인 (초록불 켜지면 성공)
+Depth → 3D 좌표 추출 → 해석적 IK → 버튼 누르기
         ↓
-버튼 소등 대기 (불 꺼지면 = 엘리베이터 도착) → ELEVATOR_ARRIVED 발행
+홈 복귀 → 버튼 점등 확인 (HSV 초록 비율)
         ↓
-[Phase 2 — 숫자 버튼]
-YOLO-seg + EasyOCR 또는 Gemini VLM → 목표 층수 버튼 감지
+버튼 소등 대기 → 엘리베이터 도착
         ↓
-Depth 카메라 → 3D 좌표 추출 → 해석적 IK → 버튼 누르기
+YOLO-seg + EasyOCR → 목표 층수 버튼 감지 → 누르기
+        ↓  /robot_status: NUMBER_PRESSED
+
+[배달]
+Scout Mini 목표 층 도착
         ↓
-홈 복귀 → 완료
+팔 위로 이동 → EasyOCR → 호수 인식 (531호 등)
+        ↓  /room_number 발행
+Scout Mini 해당 호실 앞 정렬 → /aligned_ready 수신
+        ↓
+바구니에서 박스 집기 → 목적지 책상에 내려놓기
+        ↓  /robot_status: DELIVERY_DONE
+
+[복귀]
+Scout Mini 엘리베이터 앞 도착 → /elevator_ready 수신
+        ↓
+DOWN 버튼 → 1층 버튼 누르기 → Scout Mini 1층 복귀
 ```
 
-상태 머신:
+엘리베이터 버튼 상태 머신 (`real_robot_unified.py`):
 
 ```
 IDLE → UPDOWN_READY → UPDOWN_PRESS → WAIT → NUMBER_READY → NUMBER_PRESS → DONE
 ```
+
+---
+
+## 픽앤플레이스 데모 (Pick & Place)
+
+책상 위 박스를 Scout Mini 바구니에 픽업한 뒤, 목적지 책상까지 배달하는 데모입니다.
+
+### 데모 영상
+
+<p align="center">
+  <img src="media/demo_pickup.gif" width="48%"/>
+  <img src="media/demo_delivery.gif" width="48%"/>
+</p>
+<p align="center">
+  <em>좌: 픽업 (책상 → 바구니) &nbsp;|&nbsp; 우: 배달 (바구니 → 목적지)</em>
+</p>
+
+### 시퀀스
+
+각 스텝은 **Joint 직접 지령**(절대 관절각)과 **XYZ→IK**(좌표 입력, IK가 관절각 자동 계산) 두 방식을 혼용합니다.  
+위치가 바뀔 때: Joint 스텝은 재실측 필요, XYZ 스텝은 좌표값만 수정.
+
+| # | 픽업 | 방식 | 배달 | 방식 |
+|---|------|------|------|------|
+| 1 | 홈 | Joint `HOME_JOINTS` | 홈 | Joint `HOME_JOINTS` |
+| 2 | 책상 방향 확인 | Joint `TABLE_LOOK_JOINTS` | 바구니 확인 | Joint `BASKET_LOOK_JOINTS` |
+| 3 | 그리퍼 열기 | Gripper | 그리퍼 열기 | Gripper |
+| 4 | 박스 위 호버 | XYZ `TABLE_HOVER` | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` |
+| 5 | 박스 잡기 위치 | XYZ `TABLE_GRIP` | 그리퍼 닫기 | Gripper |
+| 6 | 그리퍼 닫기 | Gripper | 박스 들어올리기 | XYZ `BASKET_HOVER` |
+| 7 | 바구니에 내려놓기 | Joint `BASKET_PLACE_JOINTS` | 목적지 방향 확인 | Joint `TABLE_LOOK_JOINTS` |
+| 8 | 그리퍼 열기 | Gripper | 목적지 호버 | XYZ `DEST_HOVER` |
+| 9 | 홈 복귀 | Joint `HOME_JOINTS` | 목적지에 내려놓기 | XYZ `DEST_PLACE` |
+| 10 | | | 그리퍼 열기 | Gripper |
+| 11 | | | 위로 호버 | XYZ `DEST_HOVER` |
+| 12 | | | 홈 복귀 | Joint `HOME_JOINTS` |
+
+### 웨이포인트 값
+
+**Joint 직접 지령** — 절대 관절각 [rad], 위치 바뀌면 재실측 필요
+
+| 상수 | joint1 | joint2 | joint3 | joint4 | 용도 |
+|------|--------|--------|--------|--------|------|
+| `HOME_JOINTS` | 3.141 | -1.3963 | 1.2217 | 0.5236 | 홈 포지션 |
+| `TABLE_LOOK_JOINTS` | 1.571 | -1.3963 | 1.2217 | 0.5236 | 책상·목적지 방향 확인 |
+| `BASKET_LOOK_JOINTS` | -3.116 | -0.387 | 0.755 | 1.164 | 바구니 확인 (배달) |
+| `BASKET_PLACE_JOINTS` | 3.1032 | 0.00767 | 1.41126 | -1.41433 | 바구니에 내려놓기 (픽업) |
+| `BASKET_GRIP_JOINTS` | 3.122 | 0.457 | 0.831 | 0.305 | 바구니 박스 잡기 (배달) |
+
+**XYZ → IK** — world 프레임 좌표 [m], 좌표값만 수정하면 IK가 관절각 자동 계산
+
+| 상수 | X | Y | Z | 용도 |
+|------|---|---|---|------|
+| `TABLE_HOVER` | 0.013 | 0.298 | 0.100 | 박스 위 호버 (픽업) |
+| `TABLE_GRIP` | 0.013 | 0.298 | 0.040 | 박스 잡기 위치 (픽업) |
+| `BASKET_HOVER` | -0.165 | 0.009 | 0.123 | 박스 들어올리기 (배달) |
+| `DEST_HOVER` | 0.013 | 0.298 | 0.100 | 목적지 호버·위로 후퇴 (배달) |
+| `DEST_PLACE` | 0.013 | 0.298 | 0.040 | 목적지에 내려놓기 (배달) |
+
+### 실행
+
+```bash
+# 터미널 1 — 하드웨어 컨트롤러
+ros2 launch open_manipulator_x_bringup hardware.launch.py
+
+# 터미널 2 — 자동 실행 (스텝 간 1.5초 자동 진행)
+python3 nodes/real_robot/real_robot_delivery.py
+
+# 또는 수동 실행 (Enter로 한 스텝씩 진행)
+python3 nodes/real_robot/test_delivery_motion.py
+```
+
+| 키 | 동작 |
+|----|------|
+| `Enter` | 현재 스텝 실행 (수동 모드) |
+| `q` | 즉시 종료 (홈 복귀) |
+| `r` | 처음부터 다시 |
 
 ---
 
@@ -158,6 +251,14 @@ mAP50: **98.7%**
 
 ---
 
+## SW 블록 다이어그램
+
+<p align="center">
+  <img src="media/sw_block_diagram.svg" width="90%"/>
+</p>
+
+---
+
 ## 설치
 
 ### 요구 사항
@@ -167,7 +268,7 @@ mAP50: **98.7%**
 - OpenMANIPULATOR-X + U2D2 (실제 로봇)
 - Intel RealSense D435 (실제 로봇)
 
-### 1. 이 레포 클론 (버튼 인식·IK 노드)
+### 1. 이 레포 클론
 
 ```bash
 git clone https://github.com/uihyeong/elevator-button-robot.git
@@ -222,14 +323,14 @@ MoveIt2 노드 또는 Isaac Sim 시뮬레이션 사용 시에만 필요합니다
 
 ## 실행 방법 (실제 로봇)
 
-U2D2 연결 후 아래 순서대로 실행합니다.
+U2D2 연결 후 아래 공통 준비를 먼저 실행합니다.
 
 ```bash
 # 터미널 1 — 하드웨어 컨트롤러
 ros2 launch open_manipulator_x_bringup hardware.launch.py
 
 # 터미널 2 — D435 카메라
-ros2 launch realsense2_camera rs_launch.py
+ros2 launch realsense2_camera rs_launch.py align_depth.enable:=true
 
 # 터미널 3 — 카메라 TF 연결 (유지)
 ros2 run tf2_ros static_transform_publisher \
@@ -240,13 +341,25 @@ ros2 run tf2_ros static_transform_publisher \
 
 ---
 
-### ★ 방법 1 — YOLO 통합 노드 (`real_robot_unified.py`)
+### ★ 픽업/배달 노드 (`real_robot_delivery.py`)
 
-YOLOv8 + YOLO-seg + EasyOCR로 버튼을 인식합니다. MoveIt2 없이 동작합니다.  
-YOLO 모델(`yolo/weights/`)이 레포에 포함되어 있어 추가 학습 없이 바로 실행 가능합니다.
+책상 위 박스를 바구니에 픽업하고, 목적지 책상까지 배달합니다.
 
 ```bash
-# 터미널 4 — 메인 노드
+# 터미널 4 — 픽업/배달 자동 실행 노드
+python3 nodes/real_robot/real_robot_delivery.py
+```
+
+메뉴에서 `1` (픽업) 또는 `2` (배달) 선택 후 스텝 간 1.5초 딜레이로 자동 진행됩니다.
+
+---
+
+### ★ 엘리베이터 버튼 노드 (`real_robot_unified.py`)
+
+YOLOv8 + YOLO-seg + EasyOCR로 버튼을 인식하고 누릅니다. YOLO 모델(`yolo/weights/`)이 레포에 포함되어 있어 추가 학습 없이 바로 실행 가능합니다.
+
+```bash
+# 터미널 4 — 엘리베이터 버튼 노드
 python3 nodes/real_robot/real_robot_unified.py
 
 # 터미널 5 — 층수 입력 (3층 예시)
@@ -296,88 +409,6 @@ joint3 effort 편차가 threshold를 초과하면 접촉으로 판정하는 단�
 ```bash
 python3 nodes/real_robot/contact_detector.py
 ```
-
----
-
-## 픽앤플레이스 데모 (Pick & Place)
-
-책상 위 박스를 Scout Mini 바구니에 픽업한 뒤, 목적지 책상까지 배달하는 데모입니다.
-
-### 시나리오
-
-```
-[픽업]  책상 위 박스 → 로봇팔 집기 → Scout Mini 바구니에 내려놓기
-
-[배달]  바구니에서 박스 집기 → 목적지 책상에 내려놓기
-```
-
-### 시퀀스
-
-각 스텝은 **Joint 직접 지령**(절대 관절각)과 **XYZ→IK**(좌표 입력, IK가 관절각 자동 계산) 두 방식을 혼용합니다.  
-위치가 바뀔 때: Joint 스텝은 재실측 필요, XYZ 스텝은 좌표값만 수정.
-
-| # | 픽업 | 방식 | 배달 | 방식 |
-|---|------|------|------|------|
-| 1 | 홈 | Joint `HOME_JOINTS` | 홈 | Joint `HOME_JOINTS` |
-| 2 | 책상 방향 확인 | Joint `TABLE_LOOK_JOINTS` | 바구니 확인 | Joint `BASKET_LOOK_JOINTS` |
-| 3 | 그리퍼 열기 | Gripper | 그리퍼 열기 | Gripper |
-| 4 | 박스 위 호버 | XYZ `TABLE_HOVER` | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` |
-| 5 | 박스 잡기 위치 | XYZ `TABLE_GRIP` | 그리퍼 닫기 | Gripper |
-| 6 | 그리퍼 닫기 | Gripper | 박스 들어올리기 | XYZ `BASKET_HOVER` |
-| 7 | 바구니에 내려놓기 | Joint `BASKET_PLACE_JOINTS` | 목적지 방향 확인 | Joint `TABLE_LOOK_JOINTS` |
-| 8 | 그리퍼 열기 | Gripper | 목적지 호버 | XYZ `DEST_HOVER` |
-| 9 | 홈 복귀 | Joint `HOME_JOINTS` | 목적지에 내려놓기 | XYZ `DEST_PLACE` |
-| 10 | | | 그리퍼 열기 | Gripper |
-| 11 | | | 위로 호버 | XYZ `DEST_HOVER` |
-| 12 | | | 홈 복귀 | Joint `HOME_JOINTS` |
-
-### 웨이포인트 값
-
-**Joint 직접 지령** — 절대 관절각 [rad], 위치 바뀌면 재실측 필요
-
-| 상수 | joint1 | joint2 | joint3 | joint4 | 용도 |
-|------|--------|--------|--------|--------|------|
-| `HOME_JOINTS` | 3.141 | -1.3963 | 1.2217 | 0.5236 | 홈 포지션 |
-| `TABLE_LOOK_JOINTS` | 1.571 | -1.3963 | 1.2217 | 0.5236 | 책상·목적지 방향 확인 |
-| `BASKET_LOOK_JOINTS` | -3.116 | -0.387 | 0.755 | 1.164 | 바구니 확인 (배달) |
-| `BASKET_PLACE_JOINTS` | 3.1032 | 0.00767 | 1.41126 | -1.41433 | 바구니에 내려놓기 (픽업) |
-| `BASKET_GRIP_JOINTS` | 3.122 | 0.457 | 0.831 | 0.305 | 바구니 박스 잡기 (배달) |
-
-**XYZ → IK** — world 프레임 좌표 [m], 좌표값만 수정하면 IK가 관절각 자동 계산
-
-| 상수 | X | Y | Z | 용도 |
-|------|---|---|---|------|
-| `TABLE_HOVER` | 0.013 | 0.298 | 0.100 | 박스 위 호버 (픽업) |
-| `TABLE_GRIP` | 0.013 | 0.298 | 0.040 | 박스 잡기 위치 (픽업) |
-| `BASKET_HOVER` | -0.165 | 0.009 | 0.123 | 박스 들어올리기 (배달) |
-| `DEST_HOVER` | 0.013 | 0.298 | 0.100 | 목적지 호버·위로 후퇴 (배달) |
-| `DEST_PLACE` | 0.013 | 0.298 | 0.040 | 목적지에 내려놓기 (배달) |
-
-### 데모 영상
-
-<p align="center">
-  <img src="media/demo_pickup.gif" width="48%"/>
-  <img src="media/demo_delivery.gif" width="48%"/>
-</p>
-<p align="center">
-  <em>좌: 픽업 (책상 → 바구니) &nbsp;|&nbsp; 우: 배달 (바구니 → 목적지)</em>
-</p>
-
-### 실행
-
-```bash
-# 터미널 1 — 하드웨어 컨트롤러
-ros2 launch open_manipulator_x_bringup hardware.launch.py
-
-# 터미널 2 — 픽앤플레이스 데모 (Enter로 한 스텝씩 진행)
-python3 nodes/real_robot/test_delivery_motion.py
-```
-
-| 키 | 동작 |
-|----|------|
-| `Enter` | 현재 스텝 실행 |
-| `q` | 즉시 종료 (홈 복귀) |
-| `r` | 처음부터 다시 |
 
 ---
 
@@ -450,19 +481,34 @@ elevator-button-robot/
 
 ## 토픽 인터페이스
 
+### 로봇팔 ↔ Scout Mini
+
 | 토픽 | 방향 | 타입 | 설명 |
 |------|------|------|------|
-| `/target_floor` | 입력 | `std_msgs/Int32` | 목표 층수 (음수=지하, 예: -1=B1) |
-| `/target_point` | 입력 | `geometry_msgs/PointStamped` | 수동 테스트용 world 좌표 직접 입력 |
-| `/robot_status` | 출력 | `std_msgs/String` | 아래 상태값 참고 |
+| `/target_floor` | Scout Mini → 팔 | `std_msgs/Int32` | 목표 층수 (음수=지하, 예: -1=B1) |
+| `/elevator_ready` | Scout Mini → 팔 | `std_msgs/Bool` | 엘리베이터 앞 도착 신호 |
+| `/aligned_ready` | Scout Mini → 팔 | `std_msgs/Bool` | 호실 앞 정렬 완료 신호 |
+| `/robot_status` | 팔 → Scout Mini | `std_msgs/String` | 아래 상태값 참고 |
+| `/room_number` | 팔 → Scout Mini | `std_msgs/String` | 인식된 호수 (예: "531") |
 
-`/robot_status` 상태값:
+### 내부 토픽
+
+| 토픽 | 타입 | 설명 |
+|------|------|------|
+| `/target_point` | `geometry_msgs/PointStamped` | 수동 테스트용 world 좌표 직접 입력 |
+| `/contact_detected` | `std_msgs/Bool` | 접촉 감지 신호 |
+| `/contact_status` | `std_msgs/String` | CONTACT_DETECTED / CONTACT_RESOLVED |
+
+### `/robot_status` 상태값
 
 | 값 | 의미 |
 |---|---|
 | `MOVING` | 관절 이동 중 |
+| `PICKUP_DONE` | 픽업 완료 |
 | `BUTTON_PRESSED` | UP/DOWN 버튼 점등 확인 완료 |
 | `ELEVATOR_ARRIVED` | 버튼 소등 감지 (엘리베이터 도착) |
+| `NUMBER_PRESSED` | 층수 버튼 누르기 완료 |
+| `DELIVERY_DONE` | 배달 완료 |
 | `NEED_REPOSITION` | 연속 3회 실패 → Scout Mini 재정렬 요청 |
 | `FAILED` | 오류 |
 
