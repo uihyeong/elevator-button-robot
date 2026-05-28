@@ -110,83 +110,6 @@ IDLE → UPDOWN_READY → UPDOWN_PRESS → WAIT → NUMBER_READY → NUMBER_PRES
 
 ---
 
-## 픽앤플레이스 데모 (Pick & Place)
-
-책상 위 박스를 Scout Mini 바구니에 픽업한 뒤, 목적지 책상까지 배달하는 데모입니다.
-
-### 데모 영상
-
-<p align="center">
-  <img src="media/demo_pickup.gif" width="48%"/>
-  <img src="media/demo_delivery.gif" width="48%"/>
-</p>
-<p align="center">
-  <em>좌: 픽업 (책상 → 바구니) &nbsp;|&nbsp; 우: 배달 (바구니 → 목적지)</em>
-</p>
-
-### 시퀀스
-
-각 스텝은 **Joint 직접 지령**(절대 관절각)과 **XYZ→IK**(좌표 입력, IK가 관절각 자동 계산) 두 방식을 혼용합니다.  
-위치가 바뀔 때: Joint 스텝은 재실측 필요, XYZ 스텝은 좌표값만 수정.
-
-| # | 픽업 | 방식 | 배달 | 방식 |
-|---|------|------|------|------|
-| 1 | 홈 | Joint `HOME_JOINTS` | 홈 | Joint `HOME_JOINTS` |
-| 2 | 책상 방향 확인 | Joint `TABLE_LOOK_JOINTS` | 바구니 확인 | Joint `BASKET_LOOK_JOINTS` |
-| 3 | 그리퍼 열기 | Gripper | 그리퍼 열기 | Gripper |
-| 4 | 박스 위 호버 | XYZ `TABLE_HOVER` | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` |
-| 5 | 박스 잡기 위치 | XYZ `TABLE_GRIP` | 그리퍼 닫기 | Gripper |
-| 6 | 그리퍼 닫기 | Gripper | 박스 들어올리기 | XYZ `BASKET_HOVER` |
-| 7 | 바구니에 내려놓기 | Joint `BASKET_PLACE_JOINTS` | 목적지 방향 확인 | Joint `TABLE_LOOK_JOINTS` |
-| 8 | 그리퍼 열기 | Gripper | 목적지 호버 | XYZ `DEST_HOVER` |
-| 9 | 홈 복귀 | Joint `HOME_JOINTS` | 목적지에 내려놓기 | XYZ `DEST_PLACE` |
-| 10 | | | 그리퍼 열기 | Gripper |
-| 11 | | | 위로 호버 | XYZ `DEST_HOVER` |
-| 12 | | | 홈 복귀 | Joint `HOME_JOINTS` |
-
-### 웨이포인트 값
-
-**Joint 직접 지령** — 절대 관절각 [rad], 위치 바뀌면 재실측 필요
-
-| 상수 | joint1 | joint2 | joint3 | joint4 | 용도 |
-|------|--------|--------|--------|--------|------|
-| `HOME_JOINTS` | 3.141 | -1.3963 | 1.2217 | 0.5236 | 홈 포지션 |
-| `TABLE_LOOK_JOINTS` | 1.571 | -1.3963 | 1.2217 | 0.5236 | 책상·목적지 방향 확인 |
-| `BASKET_LOOK_JOINTS` | -3.116 | -0.387 | 0.755 | 1.164 | 바구니 확인 (배달) |
-| `BASKET_PLACE_JOINTS` | 3.1032 | 0.00767 | 1.41126 | -1.41433 | 바구니에 내려놓기 (픽업) |
-| `BASKET_GRIP_JOINTS` | 3.122 | 0.457 | 0.831 | 0.305 | 바구니 박스 잡기 (배달) |
-
-**XYZ → IK** — world 프레임 좌표 [m], 좌표값만 수정하면 IK가 관절각 자동 계산
-
-| 상수 | X | Y | Z | 용도 |
-|------|---|---|---|------|
-| `TABLE_HOVER` | 0.013 | 0.298 | 0.100 | 박스 위 호버 (픽업) |
-| `TABLE_GRIP` | 0.013 | 0.298 | 0.040 | 박스 잡기 위치 (픽업) |
-| `BASKET_HOVER` | -0.165 | 0.009 | 0.123 | 박스 들어올리기 (배달) |
-| `DEST_HOVER` | 0.013 | 0.298 | 0.100 | 목적지 호버·위로 후퇴 (배달) |
-| `DEST_PLACE` | 0.013 | 0.298 | 0.040 | 목적지에 내려놓기 (배달) |
-
-### 실행
-
-```bash
-# 터미널 1 — 하드웨어 컨트롤러
-ros2 launch open_manipulator_x_bringup hardware.launch.py
-
-# 터미널 2 — 자동 실행 (스텝 간 1.5초 자동 진행)
-python3 nodes/real_robot/real_robot_delivery.py
-
-# 또는 수동 실행 (Enter로 한 스텝씩 진행)
-python3 nodes/real_robot/test_delivery_motion.py
-```
-
-| 키 | 동작 |
-|----|------|
-| `Enter` | 현재 스텝 실행 (수동 모드) |
-| `q` | 즉시 종료 (홈 복귀) |
-| `r` | 처음부터 다시 |
-
----
-
 ## 해석적 IK (Analytical Inverse Kinematics)
 
 MoveIt2 없이 수식을 직접 유도하여 관절각을 계산합니다.
@@ -345,12 +268,65 @@ ros2 run tf2_ros static_transform_publisher \
 
 책상 위 박스를 바구니에 픽업하고, 목적지 책상까지 배달합니다.
 
+<p align="center">
+  <img src="media/demo_pickup.gif" width="48%"/>
+  <img src="media/demo_delivery.gif" width="48%"/>
+</p>
+<p align="center">
+  <em>좌: 픽업 (책상 → 바구니) &nbsp;|&nbsp; 우: 배달 (바구니 → 목적지)</em>
+</p>
+
+각 스텝은 **Joint 직접 지령**(절대 관절각)과 **XYZ→IK**(좌표 입력, IK가 관절각 자동 계산) 두 방식을 혼용합니다.  
+위치가 바뀔 때: Joint 스텝은 재실측 필요, XYZ 스텝은 좌표값만 수정.
+
+| # | 픽업 | 방식 | 배달 | 방식 |
+|---|------|------|------|------|
+| 1 | 홈 | Joint `HOME_JOINTS` | 홈 | Joint `HOME_JOINTS` |
+| 2 | 책상 방향 확인 | Joint `TABLE_LOOK_JOINTS` | 바구니 확인 | Joint `BASKET_LOOK_JOINTS` |
+| 3 | 그리퍼 열기 | Gripper | 그리퍼 열기 | Gripper |
+| 4 | 박스 위 호버 | XYZ `TABLE_HOVER` | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` |
+| 5 | 박스 잡기 위치 | XYZ `TABLE_GRIP` | 그리퍼 닫기 | Gripper |
+| 6 | 그리퍼 닫기 | Gripper | 박스 들어올리기 | XYZ `BASKET_HOVER` |
+| 7 | 바구니에 내려놓기 | Joint `BASKET_PLACE_JOINTS` | 목적지 방향 확인 | Joint `TABLE_LOOK_JOINTS` |
+| 8 | 그리퍼 열기 | Gripper | 목적지 호버 | XYZ `DEST_HOVER` |
+| 9 | 홈 복귀 | Joint `HOME_JOINTS` | 목적지에 내려놓기 | XYZ `DEST_PLACE` |
+| 10 | | | 그리퍼 열기 | Gripper |
+| 11 | | | 위로 호버 | XYZ `DEST_HOVER` |
+| 12 | | | 홈 복귀 | Joint `HOME_JOINTS` |
+
+**Joint 직접 지령** — 절대 관절각 [rad], 위치 바뀌면 재실측 필요
+
+| 상수 | joint1 | joint2 | joint3 | joint4 | 용도 |
+|------|--------|--------|--------|--------|------|
+| `HOME_JOINTS` | 3.141 | -1.3963 | 1.2217 | 0.5236 | 홈 포지션 |
+| `TABLE_LOOK_JOINTS` | 1.571 | -1.3963 | 1.2217 | 0.5236 | 책상·목적지 방향 확인 |
+| `BASKET_LOOK_JOINTS` | -3.116 | -0.387 | 0.755 | 1.164 | 바구니 확인 (배달) |
+| `BASKET_PLACE_JOINTS` | 3.1032 | 0.00767 | 1.41126 | -1.41433 | 바구니에 내려놓기 (픽업) |
+| `BASKET_GRIP_JOINTS` | 3.122 | 0.457 | 0.831 | 0.305 | 바구니 박스 잡기 (배달) |
+
+**XYZ → IK** — world 프레임 좌표 [m], 좌표값만 수정하면 IK가 관절각 자동 계산
+
+| 상수 | X | Y | Z | 용도 |
+|------|---|---|---|------|
+| `TABLE_HOVER` | 0.013 | 0.298 | 0.100 | 박스 위 호버 (픽업) |
+| `TABLE_GRIP` | 0.013 | 0.298 | 0.040 | 박스 잡기 위치 (픽업) |
+| `BASKET_HOVER` | -0.165 | 0.009 | 0.123 | 박스 들어올리기 (배달) |
+| `DEST_HOVER` | 0.013 | 0.298 | 0.100 | 목적지 호버·위로 후퇴 (배달) |
+| `DEST_PLACE` | 0.013 | 0.298 | 0.040 | 목적지에 내려놓기 (배달) |
+
 ```bash
-# 터미널 4 — 픽업/배달 자동 실행 노드
+# 터미널 4 — 자동 실행 (스텝 간 1.5초 자동 진행)
 python3 nodes/real_robot/real_robot_delivery.py
+
+# 또는 수동 실행 (Enter로 한 스텝씩 진행)
+python3 nodes/real_robot/test_delivery_motion.py
 ```
 
-메뉴에서 `1` (픽업) 또는 `2` (배달) 선택 후 스텝 간 1.5초 딜레이로 자동 진행됩니다.
+| 키 | 동작 |
+|----|------|
+| `Enter` | 현재 스텝 실행 (수동 모드) |
+| `q` | 즉시 종료 (홈 복귀) |
+| `r` | 처음부터 다시 |
 
 ---
 
