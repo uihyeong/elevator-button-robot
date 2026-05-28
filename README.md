@@ -451,14 +451,14 @@ python3 nodes/simulation/isaac_sim_yolo_moveit.py
 elevator-button-robot/
 ├── nodes/
 │   ├── real_robot/
-│   │   ├── real_robot_unified.py       # ★ YOLO 통합 노드 (UP/DOWN → 숫자 전체 시퀀스)
-│   │   ├── real_robot_gemini_vlm.py    # ★ Gemini VLM 통합 노드 (zero-shot, 권장)
-│   │   ├── test_delivery_motion.py     # ★ 픽업/배달 데모 (책상→바구니→목적지, 실측 완성)
-│   │   ├── test_gemini_detection.py    # Gemini 인식 단독 테스트 (ROS2 불필요)
+│   │   ├── real_robot_unified.py       # ★ 엘리베이터 버튼 노드 (UP/DOWN → 숫자 전체 시퀀스)
+│   │   ├── real_robot_delivery.py      # ★ 픽업/배달 자동 실행 노드 (스텝 간 자동 진행)
+│   │   ├── test_delivery_motion.py     # 픽업/배달 수동 데모 (Enter로 스텝별 진행)
 │   │   ├── contact_detector.py         # 접촉 감지 — Effort Threshold 방식
 │   │   ├── contact_detector_svm.py     # ★ 접촉 감지 — SVM 방식 (권장)
 │   │   ├── train_svm_model.py          # SVM 모델 재학습 스크립트
 │   │   ├── fsr_effort_logger.py        # FSR + effort 동시 로깅 (학습 데이터 수집)
+│   │   ├── test_button_lit.py          # 버튼 점등 HSV 튜닝 도구
 │   │   ├── real_robot_direct_ik.py     # UP/DOWN 단독 노드
 │   │   ├── real_robot_num_ocr_ik.py    # 숫자 버튼 단독 노드
 │   │   └── real_robot_yolo_moveit.py   # MoveIt2 IK 노드 (참고용)
