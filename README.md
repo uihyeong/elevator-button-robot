@@ -240,41 +240,7 @@ ros2 run tf2_ros static_transform_publisher \
 
 ---
 
-### ★ 방법 1 — Gemini VLM (`real_robot_gemini_vlm.py`) — **권장**
-
-YOLO 학습 없이 Gemini Vision API 단일 호출로 UP/DOWN + 숫자 버튼을 동시에 인식합니다.
-
-```bash
-# Gemini API 키 발급: aistudio.google.com/apikey
-pip install google-genai
-
-# 터미널 4 — 메인 노드
-export GEMINI_API_KEY="your_key"
-python3 nodes/real_robot/real_robot_gemini_vlm.py
-
-# 터미널 5 — 층수 입력 (3층 예시)
-ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
-```
-
-Gemini 인식만 단독 테스트 (ROS2·로봇 불필요):
-
-```bash
-# 이미지 파일로 테스트
-GEMINI_API_KEY="your_key" python3 nodes/real_robot/test_gemini_detection.py --image button.jpg
-
-# 카메라로 숫자 버튼 테스트 (3층 목표)
-GEMINI_API_KEY="your_key" python3 nodes/real_robot/test_gemini_detection.py --mode number --floor 3
-```
-
-| 키 | 동작 |
-|---|---|
-| `SPACE` | 즉시 Gemini 호출 |
-| `s` | 현재 프레임 저장 |
-| `q` | 종료 |
-
----
-
-### ★ 방법 2 — YOLO 통합 노드 (`real_robot_unified.py`)
+### ★ 방법 1 — YOLO 통합 노드 (`real_robot_unified.py`)
 
 YOLOv8 + YOLO-seg + EasyOCR로 버튼을 인식합니다. MoveIt2 없이 동작합니다.  
 YOLO 모델(`yolo/weights/`)이 레포에 포함되어 있어 추가 학습 없이 바로 실행 가능합니다.
