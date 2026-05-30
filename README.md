@@ -4,48 +4,6 @@
 캡스톤디자인 프로젝트 — 자율주행 택배 로봇이 엘리베이터를 스스로 탑승하고 목적지까지 배달할 수 있도록,  
 로봇팔이 카메라로 버튼·호수를 인식하고 픽업·배달·엘리베이터 조작을 자동으로 수행하는 시스템입니다.
 
-## 시스템 구성
-
-```
-택배기사 앱 (층수 입력)
-        ↓  ROS2 /target_floor
-자율주행 로봇 Scout Mini (출발점 대기)
-
-[픽업]
-로봇팔 OpenMANIPULATOR-X  ← 이 저장소
-  └─ 책상 위 박스 집기 → Scout Mini 바구니에 내려놓기
-        ↓  ROS2 /robot_status  (PICKUP_DONE)
-
-[엘리베이터 탑승]
-자율주행 로봇 Scout Mini (엘리베이터 앞으로 이동)
-        ↓  ROS2 /elevator_ready
-로봇팔 OpenMANIPULATOR-X
-  ├─ UP/DOWN 버튼 인식 → 누르기
-  ├─ 버튼 점등 확인 → 엘리베이터 도착 대기
-  └─ 목표 층수 버튼 누르기
-        ↓  ROS2 /robot_status  (NUMBER_PRESSED)
-자율주행 로봇 Scout Mini (엘리베이터 탑승 → 목표 층 이동)
-
-[배달]
-로봇팔 OpenMANIPULATOR-X
-  └─ 호수 인식 (EasyOCR) → /room_number 발행
-        ↓  ROS2 /room_number
-자율주행 로봇 Scout Mini (해당 호실 앞 정렬)
-        ↓  ROS2 /aligned_ready
-로봇팔 OpenMANIPULATOR-X
-  └─ 바구니에서 박스 집기 → 목적지에 내려놓기
-        ↓  ROS2 /robot_status  (DELIVERY_DONE)
-
-[복귀]
-자율주행 로봇 Scout Mini (엘리베이터 앞으로 이동)
-        ↓  ROS2 /elevator_ready
-로봇팔 OpenMANIPULATOR-X
-  └─ DOWN 버튼 → B2층 버튼 누르기
-자율주행 로봇 Scout Mini (B2층 복귀)
-```
-
----
-
 ## 기술 스택
 
 | 분야 | 기술 |
