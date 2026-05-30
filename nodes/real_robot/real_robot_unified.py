@@ -535,6 +535,28 @@ class UnifiedButtonNode(Node):
         self.get_logger().info(f'버튼 점등 확인: green_ratio={ratio:.3f} (기준 {LIT_GREEN_RATIO})')
         return ratio > LIT_GREEN_RATIO
 
+    def _wait_for_button_unlit(self):
+        """버튼 소등(= 엘리베이터 도착) 대기. 타임아웃 시 그냥 진행."""
+        TIMEOUT = 60.0
+        self.get_logger().info(f'버튼 소등 대기 중 (최대 {TIMEOUT:.0f}초)...')
+        deadline  = time.time() + TIMEOUT
+        last_log  = time.time()
+        while time.time() < deadline:
+            ratio = self._get_green_ratio()
+            if ratio is None:
+                self.get_logger().warn('소등 확인 불가 (프레임/bbox 없음) → 진행')
+                return
+            if time.time() - last_log >= 5.0:
+                self.get_logger().info(f'소등 대기 중... green_ratio={ratio:.3f}')
+                last_log = time.time()
+            if ratio <= LIT_GREEN_RATIO:
+                self.get_logger().info(
+                    f'✅ 버튼 소등 감지! (green_ratio={ratio:.3f}) 엘리베이터 도착')
+                self.status_pub.publish(String(data='ELEVATOR_ARRIVED'))
+                return
+            time.sleep(0.5)
+        self.get_logger().warn(f'소등 감지 타임아웃 ({TIMEOUT:.0f}초) → 강제 진행')
+
     def _press_button(self, X: float, Y: float, Z: float, label: str = ''):
         phase_updown = (self.state == UPDOWN_PRESS)
         sign = math.copysign(1.0, X)
@@ -583,9 +605,12 @@ class UnifiedButtonNode(Node):
             return
 
         self._fail_updown = 0
-        self.get_logger().info('✅ UP/DOWN 버튼 점등 확인! Scout Mini /elevator_ready 대기 중...')
+        self.get_logger().info('✅ UP/DOWN 버튼 점등 확인! 엘리베이터 도착 대기(소등)...')
         self.status_pub.publish(String(data='UPDOWN_PRESSED'))
 
+        self._wait_for_button_unlit()  # 소등 = 엘리베이터 도착
+
+        self.get_logger().info('Scout Mini /elevator_ready 대기 중...')
         self._elevator_ready_event.clear()
         self._elevator_ready_event.wait()  # Scout Mini 탑승 완료 신호 대기
         self._start_number_phase()
