@@ -66,42 +66,41 @@
 ## 전체 동작 흐름
 
 ```
+택배기사 앱 (층수 입력)
+        ↓  ROS2 /target_floor
+자율주행 로봇 Scout Mini (출발점 대기)
+
 [픽업]
-책상 위 박스 감지 (YOLOv8n + Depth)
-        ↓
-해석적 IK → 박스 집기 → Scout Mini 바구니에 내려놓기
-        ↓  /robot_status: PICKUP_DONE
+로봇팔 OpenMANIPULATOR-X  ← 이 저장소
+  └─ 책상 위 박스 집기 → Scout Mini 바구니에 내려놓기
+        ↓  ROS2 /robot_status  (PICKUP_DONE)
 
 [엘리베이터 탑승]
-Scout Mini 엘리베이터 앞 도착 → /elevator_ready 수신
-        ↓
-YOLOv8 → UP/DOWN 버튼 감지
-        ↓
-Depth → 3D 좌표 추출 → 해석적 IK → 버튼 누르기
-        ↓
-홈 복귀 → 버튼 점등 확인 (HSV 초록 비율)
-        ↓
-버튼 소등 대기 → 엘리베이터 도착
-        ↓
-Scout Mini 탑승 + 버튼 앞 정렬 → /elevator_ready 발행
-        ↓
-YOLO-seg + EasyOCR → 목표 층수 버튼 감지 → 누르기
-        ↓  /robot_status: NUMBER_PRESSED
+자율주행 로봇 Scout Mini (엘리베이터 앞으로 이동)
+        ↓  ROS2 /elevator_ready
+로봇팔 OpenMANIPULATOR-X
+  ├─ UP/DOWN 버튼 인식 → 누르기
+  ├─ 버튼 점등 확인 → 엘리베이터 도착 대기
+  └─ 목표 층수 버튼 누르기
+        ↓  ROS2 /robot_status  (NUMBER_PRESSED)
+자율주행 로봇 Scout Mini (엘리베이터 탑승 → 목표 층 이동)
 
 [배달]
-Scout Mini 목표 층 도착
-        ↓
-팔 위로 이동 → EasyOCR → 호수 인식 (531호 등)
-        ↓  /room_number 발행
-Scout Mini 해당 호실 앞 정렬 → /aligned_ready 수신
-        ↓
-바구니에서 박스 집기 → 목적지 책상에 내려놓기
-        ↓  /robot_status: DELIVERY_DONE
+로봇팔 OpenMANIPULATOR-X
+  └─ 호수 인식 (EasyOCR) → /room_number 발행
+        ↓  ROS2 /room_number
+자율주행 로봇 Scout Mini (해당 호실 앞 정렬)
+        ↓  ROS2 /aligned_ready
+로봇팔 OpenMANIPULATOR-X
+  └─ 바구니에서 박스 집기 → 목적지에 내려놓기
+        ↓  ROS2 /robot_status  (DELIVERY_DONE)
 
 [복귀]
-Scout Mini 엘리베이터 앞 도착 → /elevator_ready 수신
-        ↓
-DOWN 버튼 → 1층 버튼 누르기 → Scout Mini 1층 복귀
+자율주행 로봇 Scout Mini (엘리베이터 앞으로 이동)
+        ↓  ROS2 /elevator_ready
+로봇팔 OpenMANIPULATOR-X
+  └─ DOWN 버튼 → 1층 버튼 누르기
+자율주행 로봇 Scout Mini (1층 복귀)
 ```
 
 엘리베이터 버튼 상태 머신 (`real_robot_unified.py`):
@@ -340,8 +339,8 @@ YOLOv8 + YOLO-seg + EasyOCR로 버튼을 인식하고 누릅니다. YOLO 모델(
 # 터미널 4 — 엘리베이터 버튼 노드
 python3 nodes/real_robot/real_robot_unified.py
 
-# 터미널 5 — 층수 입력 (5층 예시)
-ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 5}"
+# 터미널 5 — 층수 입력 (B2층 예시)
+ros2 topic pub --once /target_floor std_msgs/Int32 "{data: -2}"
 
 # 터미널 6 — Scout Mini 탑승 완료 수동 신호 (테스트용)
 ros2 topic pub --once /elevator_ready std_msgs/Bool "{data: true}"
@@ -498,8 +497,8 @@ elevator-button-robot/
 층수 입력 예시:
 
 ```bash
+ros2 topic pub --once /target_floor std_msgs/Int32 "{data: -2}"  # B2층 (down)
 ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 5}"   # 5층 (up)
-ros2 topic pub --once /target_floor std_msgs/Int32 "{data: -1}"  # B1층 (down)
 
 # Scout Mini 탑승 완료 수동 신호 (테스트용)
 ros2 topic pub --once /elevator_ready std_msgs/Bool "{data: true}"
