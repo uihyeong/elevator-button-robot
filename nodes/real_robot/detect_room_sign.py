@@ -18,12 +18,12 @@ from ultralytics import YOLO
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 MODEL_PATH = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_room.pt')
-CONFIDENCE = 0.5
+CONFIDENCE = 0.83
 
 JOINT_NAMES      = ['joint1', 'joint2', 'joint3', 'joint4']
 MOVE_SPEED       = 0.5
 MIN_DURATION     = 2.0
-ROOM_SIGN_JOINTS = [-3.141, -2.0203, 1.5002, -0.044]
+ROOM_SIGN_JOINTS = [-3.141, -2.0203, 1.5002,  0.502]
 
 
 def _shortest_path(target: float, current: float) -> float:
