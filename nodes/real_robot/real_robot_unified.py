@@ -85,7 +85,8 @@ NUM_PRESS_CONF    = 0.7    # 숫자 버튼 누르기 신뢰도 기준
 OCR_INTERVAL      = 5      # 매 N프레임마다 OCR 실행
 BUTTON_OFFSET_X   = 0.075  # 버튼 앞 정지 거리 (m)
 MAX_FAIL          = 3      # UP/DOWN 연속 실패 허용 횟수 (초과 시 NEED_REPOSITION → IDLE)
-LIT_GREEN_RATIO   = 0.10   # 점등 판정 green 픽셀 비율 기준
+LIT_GREEN_RATIO   = 0.10   # UP 버튼 점등 판정 green 픽셀 비율 기준
+LIT_BRIGHT_RATIO  = 0.60   # DOWN 버튼 점등 판정 V채널 평균 기준 (0~1, 튜닝 필요)
 
 # ─── 상태 상수 ────────────────────────────────────────────────────────────────
 
@@ -511,8 +512,10 @@ class UnifiedButtonNode(Node):
             self.get_logger().warn('숫자 버튼 실패 → 재시도')
             self.state = NUMBER_READY
 
-    def _get_green_ratio(self) -> float | None:
-        """저장된 bbox ROI의 green 픽셀 비율 반환. 확인 불가 시 None."""
+    def _get_lit_ratio(self) -> float | None:
+        """저장된 bbox ROI의 점등 비율 반환.
+        UP 버튼: HSV green 픽셀 비율 / DOWN 버튼: V채널 평균(0~1).
+        확인 불가 시 None."""
         frame = self.latest_frame
         bbox  = self._last_updown_bbox
         if frame is None or bbox is None:
@@ -522,18 +525,26 @@ class UnifiedButtonNode(Node):
         roi = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
         if roi.size == 0:
             return None
-        hsv  = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, np.array([30, 40, 40]), np.array([95, 255, 255]))
-        return np.count_nonzero(mask) / (roi.shape[0] * roi.shape[1])
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        if self.target_button == 'down_button':
+            return float(hsv[:, :, 2].mean()) / 255.0
+        else:
+            mask = cv2.inRange(hsv, np.array([30, 40, 40]), np.array([95, 255, 255]))
+            return np.count_nonzero(mask) / (roi.shape[0] * roi.shape[1])
 
     def _check_button_lit(self) -> bool:
         """UP/DOWN 버튼 점등 여부 확인. 확인 불가 시 True(성공으로 간주) 반환."""
-        ratio = self._get_green_ratio()
+        ratio = self._get_lit_ratio()
         if ratio is None:
             self.get_logger().warn('점등 확인 불가 (프레임/bbox 없음) → 성공으로 간주')
             return True
-        self.get_logger().info(f'버튼 점등 확인: green_ratio={ratio:.3f} (기준 {LIT_GREEN_RATIO})')
-        return ratio > LIT_GREEN_RATIO
+        if self.target_button == 'down_button':
+            threshold = LIT_BRIGHT_RATIO
+            self.get_logger().info(f'DOWN 버튼 점등 확인: brightness={ratio:.3f} (기준 {threshold})')
+        else:
+            threshold = LIT_GREEN_RATIO
+            self.get_logger().info(f'UP 버튼 점등 확인: green_ratio={ratio:.3f} (기준 {threshold})')
+        return ratio > threshold
 
     def _wait_for_button_unlit(self):
         """버튼 소등(= 엘리베이터 도착) 대기. 타임아웃 시 그냥 진행."""
@@ -542,7 +553,7 @@ class UnifiedButtonNode(Node):
         deadline  = time.time() + TIMEOUT
         last_log  = time.time()
         while time.time() < deadline:
-            ratio = self._get_green_ratio()
+            ratio = self._get_lit_ratio()
             if ratio is None:
                 self.get_logger().warn('소등 확인 불가 (프레임/bbox 없음) → 진행')
                 return
