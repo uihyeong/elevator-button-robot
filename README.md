@@ -495,8 +495,11 @@ elevator-button-robot/
 층수 입력 예시:
 
 ```bash
-ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"   # 3층 (up)
+ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 5}"   # 5층 (up)
 ros2 topic pub --once /target_floor std_msgs/Int32 "{data: -1}"  # B1층 (down)
+
+# Scout Mini 탑승 완료 수동 신호 (테스트용)
+ros2 topic pub --once /elevator_ready std_msgs/Bool "{data: true}"
 ```
 
 ---
