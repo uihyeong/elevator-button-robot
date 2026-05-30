@@ -72,8 +72,9 @@ JOINT_LIMITS = [
     (-1.7,     1.97),
 ]
 
-JOINT_NAMES  = ['joint1', 'joint2', 'joint3', 'joint4']
-HOME_JOINTS  = [-3.141, -0.9948, 0.6981, 0.2967]
+JOINT_NAMES        = ['joint1', 'joint2', 'joint3', 'joint4']
+HOME_JOINTS        = [-3.141, -0.9948, 0.6981, 0.2967]
+NUMBER_HOME_JOINTS = [-3.141, -0.9948, 0.6981, 0.6780]  # 숫자 패널용 (joint4 더 숙임, 튜닝 필요)
 MOVE_SPEED   = 0.5    # rad/s
 MIN_DURATION = 2.0    # 초
 
@@ -632,6 +633,9 @@ class UnifiedButtonNode(Node):
         self.status_pub.publish(String(data='UPDOWN_PRESSED'))
 
         self._wait_for_button_unlit()  # 소등 = 엘리베이터 도착
+
+        self.get_logger().info('숫자 패널 자세로 이동 중...')
+        self._send_trajectory(NUMBER_HOME_JOINTS)
 
         self.get_logger().info('Scout Mini /elevator_ready 대기 중...')
         self._elevator_ready_event.clear()
