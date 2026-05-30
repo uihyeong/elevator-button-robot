@@ -507,3 +507,13 @@ ros2 topic pub --once /target_floor std_msgs/Int32 "{data: -1}"  # B1층 (down)
 - ROS2: Humble
 - Python: 3.10
 - Isaac Sim: 5.1.0
+
+---
+
+## 관절 포지션 레퍼런스
+
+| 상수 | joint1 | joint2 | joint3 | joint4 | 용도 |
+|------|--------|--------|--------|--------|------|
+| `HOME_JOINTS` | -3.141 | -0.9948 | 0.6981 | 0.2967 | 기본 홈 자세 |
+| `NUMBER_HOME_JOINTS` | -3.141 | -0.9948 | 0.6981 | 0.6780 | 소등 후 숫자 패널 대기 자세 (튜닝 필요) |
+| `ROOM_SIGN_JOINTS` | -3.141 | -2.0203 | 1.5002 | -0.044 | 호수 번호판 인식용 (라이다 미간섭) |
