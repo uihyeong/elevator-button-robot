@@ -342,6 +342,8 @@ python3 nodes/real_robot/real_robot_unified.py
 ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
 ```
 
+> **버튼 Z 보정**: `Z - 0.031 m` (unified) / `Z - 0.05 m` (gemini) — 카메라 TF z=0.062가 실제보다 높게 감지되는 오차 보정값. 로봇 설치 위치가 바뀌면 재실측 필요.
+
 <p align="center">
   <img src="media/demo1.gif" width="48%"/>
   <img src="media/demo2.gif" width="48%"/>
