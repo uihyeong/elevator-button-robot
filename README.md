@@ -40,8 +40,8 @@
 자율주행 로봇 Scout Mini (엘리베이터 앞으로 이동)
         ↓  ROS2 /elevator_ready
 로봇팔 OpenMANIPULATOR-X
-  └─ DOWN 버튼 → 1층 버튼 누르기
-자율주행 로봇 Scout Mini (1층 복귀)
+  └─ DOWN 버튼 → B2층 버튼 누르기
+자율주행 로봇 Scout Mini (B2층 복귀)
 ```
 
 ---
@@ -99,8 +99,8 @@
 자율주행 로봇 Scout Mini (엘리베이터 앞으로 이동)
         ↓  ROS2 /elevator_ready
 로봇팔 OpenMANIPULATOR-X
-  └─ DOWN 버튼 → 1층 버튼 누르기
-자율주행 로봇 Scout Mini (1층 복귀)
+  └─ DOWN 버튼 → B2층 버튼 누르기
+자율주행 로봇 Scout Mini (B2층 복귀)
 ```
 
 엘리베이터 버튼 상태 머신 (`real_robot_unified.py`):
