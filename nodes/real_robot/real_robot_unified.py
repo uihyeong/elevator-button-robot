@@ -318,10 +318,22 @@ class UnifiedButtonNode(Node):
         elif state == NUMBER_READY and self.num_model is not None:
             self._process_number(frame, depth)
         else:
-            # 인식하지 않는 phase에도 화면은 표시
             label = f'State: {state} | Target: {self.target_floor}F'
             cv2.putText(frame, label, (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+            # WAIT 상태: 점등/소등 확인 bbox + 현재 비율 표시
+            if state == WAIT and self._last_updown_bbox is not None:
+                x1, y1, x2, y2 = self._last_updown_bbox
+                ratio = self._get_lit_ratio()
+                if self.target_button == 'down_button':
+                    color = (255, 255, 255)  # 흰색
+                    ratio_label = f'brightness={ratio:.3f} (>{LIT_BRIGHT_RATIO})'
+                else:
+                    color = (0, 255, 0)  # 초록색
+                    ratio_label = f'green={ratio:.3f} (>{LIT_GREEN_RATIO})'
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(frame, ratio_label, (x1, y1 - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
             cv2.imshow('Unified', frame)
             cv2.waitKey(1)
 
