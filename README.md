@@ -340,8 +340,11 @@ YOLOv8 + YOLO-seg + EasyOCR로 버튼을 인식하고 누릅니다. YOLO 모델(
 # 터미널 4 — 엘리베이터 버튼 노드
 python3 nodes/real_robot/real_robot_unified.py
 
-# 터미널 5 — 층수 입력 (3층 예시)
-ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 3}"
+# 터미널 5 — 층수 입력 (5층 예시)
+ros2 topic pub --once /target_floor std_msgs/Int32 "{data: 5}"
+
+# 터미널 6 — Scout Mini 탑승 완료 수동 신호 (테스트용)
+ros2 topic pub --once /elevator_ready std_msgs/Bool "{data: true}"
 ```
 
 > **버튼 Z 보정**: `Z - 0.031 m` (unified) / `Z - 0.05 m` (gemini) — 카메라 TF z=0.062가 실제보다 높게 감지되는 오차 보정값. 로봇 설치 위치가 바뀌면 재실측 필요.
