@@ -75,6 +75,7 @@ JOINT_LIMITS = [
 JOINT_NAMES        = ['joint1', 'joint2', 'joint3', 'joint4']
 HOME_JOINTS        = [-3.141, -0.9948, 0.6981, 0.2967]
 NUMBER_HOME_JOINTS = [-3.141, -0.9948, 0.6981, 0.6780]  # 숫자 패널용 (joint4 더 숙임, 튜닝 필요)
+ROOM_SIGN_JOINTS   = [-3.141, -2.0203, 1.5002, -0.044]  # 호수 번호판 인식용 (라이다 미간섭)
 MOVE_SPEED   = 0.5    # rad/s
 MIN_DURATION = 2.0    # 초
 
