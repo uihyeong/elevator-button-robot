@@ -83,6 +83,8 @@ Depth → 3D 좌표 추출 → 해석적 IK → 버튼 누르기
         ↓
 버튼 소등 대기 → 엘리베이터 도착
         ↓
+Scout Mini 탑승 + 버튼 앞 정렬 → /elevator_ready 발행
+        ↓
 YOLO-seg + EasyOCR → 목표 층수 버튼 감지 → 누르기
         ↓  /robot_status: NUMBER_PRESSED
 
@@ -464,7 +466,7 @@ elevator-button-robot/
 | 토픽 | 방향 | 타입 | 설명 |
 |------|------|------|------|
 | `/target_floor` | Scout Mini → 팔 | `std_msgs/Int32` | 목표 층수 (음수=지하, 예: -1=B1) |
-| `/elevator_ready` | Scout Mini → 팔 | `std_msgs/Bool` | 엘리베이터 앞 도착 신호 |
+| `/elevator_ready` | Scout Mini → 팔 | `std_msgs/Bool` | 엘리베이터 안 버튼 앞 정지 완료 → 숫자 버튼 Phase 시작 |
 | `/aligned_ready` | Scout Mini → 팔 | `std_msgs/Bool` | 호실 앞 정렬 완료 신호 |
 | `/robot_status` | 팔 → Scout Mini | `std_msgs/String` | 아래 상태값 참고 |
 | `/room_number` | 팔 → Scout Mini | `std_msgs/String` | 인식된 호수 (예: "531") |
@@ -487,7 +489,7 @@ elevator-button-robot/
 | `ELEVATOR_ARRIVED` | 버튼 소등 감지 (엘리베이터 도착) |
 | `NUMBER_PRESSED` | 층수 버튼 누르기 완료 |
 | `DELIVERY_DONE` | 배달 완료 |
-| `NEED_REPOSITION` | 연속 3회 실패 → Scout Mini 재정렬 요청 |
+| `NEED_REPOSITION` | UP/DOWN 연속 3회 실패 → Scout Mini 재정렬 요청 |
 | `FAILED` | 오류 |
 
 층수 입력 예시:
