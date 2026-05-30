@@ -1,11 +1,18 @@
+import math
 import os
 import threading
+import time
 
 import cv2
 import rclpy
+from builtin_interfaces.msg import Duration
+from control_msgs.action import FollowJointTrajectory
 from cv_bridge import CvBridge
+from rclpy.action import ActionClient
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, JointState
+from std_msgs.msg import String
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from ultralytics import YOLO
 
 
@@ -13,25 +20,112 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')
 MODEL_PATH = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_room.pt')
 CONFIDENCE = 0.5
 
+JOINT_NAMES      = ['joint1', 'joint2', 'joint3', 'joint4']
+MOVE_SPEED       = 0.5
+MIN_DURATION     = 2.0
+ROOM_SIGN_JOINTS = [-3.141, -2.0203, 1.5002, -0.044]
+
+
+def _shortest_path(target: float, current: float) -> float:
+    diff = (target - current + math.pi) % (2 * math.pi) - math.pi
+    return current + diff
+
+
+def make_trajectory(target_joints: list, current_joints: list):
+    target_joints = [_shortest_path(t, c) for t, c in zip(target_joints, current_joints)]
+    max_disp = max(abs(t - c) for t, c in zip(target_joints, current_joints))
+    duration = max(max_disp / MOVE_SPEED, MIN_DURATION)
+
+    traj = JointTrajectory()
+    traj.joint_names = JOINT_NAMES
+
+    pt = JointTrajectoryPoint()
+    pt.positions = target_joints
+    pt.velocities = [0.0] * 4
+    secs  = int(duration)
+    nsecs = int((duration - secs) * 1e9)
+    pt.time_from_start = Duration(sec=secs, nanosec=nsecs)
+    traj.points.append(pt)
+
+    return traj, duration
+
 
 class RoomSignDetector(Node):
     def __init__(self):
         super().__init__('room_sign_detector')
         self.bridge = CvBridge()
-        self.latest_frame = None
+        self.latest_frame  = None
+        self.current_joints = None
         self.lock = threading.Lock()
 
         self.model = YOLO(MODEL_PATH)
         self.get_logger().info('모델 로드 완료')
 
-        self.sub = self.create_subscription(
-            Image, '/camera/camera/color/image_raw', self.color_callback, 10)
+        self._arm_client = ActionClient(
+            self, FollowJointTrajectory,
+            '/arm_controller/follow_joint_trajectory')
+        self.status_pub = self.create_publisher(String, '/robot_status', 10)
+
+        self.create_subscription(Image,      '/camera/camera/color/image_raw', self._cb_image,  10)
+        self.create_subscription(JointState, '/joint_states',                  self._cb_joints, 10)
+
+        # 시작 2초 후 ROOM_SIGN_JOINTS로 이동
+        self._move_timer = self.create_timer(2.0, self._move_once)
 
         self.get_logger().info('실시간 감지 시작! q: 종료')
 
-    def color_callback(self, msg):
+    def _cb_image(self, msg):
         with self.lock:
             self.latest_frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+
+    def _cb_joints(self, msg):
+        with self.lock:
+            self.current_joints = msg
+
+    def _move_once(self):
+        self._move_timer.cancel()  # 한 번만 실행
+        threading.Thread(target=self._move_to_room_sign, daemon=True).start()
+
+    def _move_to_room_sign(self):
+        if not self._arm_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('arm_controller 서버 없음!')
+            return
+
+        with self.lock:
+            js = self.current_joints
+        current = [0.0] * 4
+        if js is not None:
+            for i, name in enumerate(JOINT_NAMES):
+                if name in js.name:
+                    current[i] = js.position[js.name.index(name)]
+
+        traj, duration = make_trajectory(ROOM_SIGN_JOINTS, current)
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory = traj
+
+        self.status_pub.publish(String(data='MOVING'))
+        future = self._arm_client.send_goal_async(goal)
+        deadline = time.time() + 10.0
+        while not future.done():
+            if time.time() > deadline:
+                self.get_logger().error('액션 수락 타임아웃')
+                return
+            time.sleep(0.05)
+
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error('액션 거부됨')
+            return
+
+        result_future = goal_handle.get_result_async()
+        deadline = time.time() + duration + 5.0
+        while not result_future.done():
+            if time.time() > deadline:
+                self.get_logger().error('이동 타임아웃')
+                return
+            time.sleep(0.1)
+
+        self.get_logger().info('✅ ROOM_SIGN_JOINTS 이동 완료')
 
     def run(self):
         while rclpy.ok():
@@ -46,7 +140,7 @@ class RoomSignDetector(Node):
 
             for box in results[0].boxes:
                 conf = float(box.conf)
-                cls = int(box.cls)
+                cls  = int(box.cls)
                 name = self.model.names[cls]
                 self.get_logger().info(f'감지: {name} ({conf:.2f})')
 
