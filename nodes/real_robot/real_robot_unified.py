@@ -15,7 +15,7 @@ Phase 2 (NUMBER):  YOLO-seg + EasyOCR → 숫자 버튼 감지 → 해석적 IK 
   python3 nodes/real_robot/real_robot_unified.py
 
 /target_floor 수신 시 자동으로 UP 또는 DOWN 버튼을 누른 뒤,
-ELEVATOR_WAIT_SEC 초 대기하고 목표 층 숫자 버튼을 누릅니다.
+Scout Mini가 /elevator_ready를 publish하면 숫자 버튼을 누릅니다.
 """
 
 import math
@@ -34,7 +34,7 @@ from geometry_msgs.msg import PointStamped
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image, JointState
-from std_msgs.msg import Int32, String
+from std_msgs.msg import Bool, Int32, String
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 import tf2_ros
 import tf2_geometry_msgs
@@ -84,9 +84,7 @@ NUM_CONF_MIN      = 0.5    # 숫자 박스 신뢰도 기준
 NUM_PRESS_CONF    = 0.7    # 숫자 버튼 누르기 신뢰도 기준
 OCR_INTERVAL      = 5      # 매 N프레임마다 OCR 실행
 BUTTON_OFFSET_X   = 0.075  # 버튼 앞 정지 거리 (m)
-ELEVATOR_WAIT_TIMEOUT  = 60.0   # 버튼 소등 감지 최대 대기 시간 (초)
-UNLIT_CHECK_INTERVAL   = 0.5    # 소등 확인 폴링 간격 (초)
-MAX_FAIL          = 3      # 연속 실패 허용 횟수 (초과 시 NEED_REPOSITION → IDLE)
+MAX_FAIL          = 3      # UP/DOWN 연속 실패 허용 횟수 (초과 시 NEED_REPOSITION → IDLE)
 LIT_GREEN_RATIO   = 0.10   # 점등 판정 green 픽셀 비율 기준
 
 # ─── 상태 상수 ────────────────────────────────────────────────────────────────
@@ -193,13 +191,15 @@ class UnifiedButtonNode(Node):
         self.ocr_cache   = {}
         self.frame_count = 0
 
-        # 연속 실패 카운터
+        # 연속 실패 카운터 (UP/DOWN 전용)
         self._fail_updown = 0
-        self._fail_number = 0
 
         # 점등 확인용
         self.latest_frame      = None
         self._last_updown_bbox = None
+
+        # Scout Mini 탑승 완료 신호
+        self._elevator_ready_event = threading.Event()
 
         # TF
         self.tf_buffer   = tf2_ros.Buffer()
@@ -213,9 +213,10 @@ class UnifiedButtonNode(Node):
         self.status_pub = self.create_publisher(String, '/robot_status', 10)
 
         # 공통 구독
-        self.create_subscription(Int32,        '/target_floor',  self._cb_target_floor,  10)
-        self.create_subscription(JointState,   '/joint_states',  self._cb_joint_state,   10)
-        self.create_subscription(PointStamped, '/target_point',  self._cb_target_point,  10)
+        self.create_subscription(Int32,        '/target_floor',    self._cb_target_floor,    10)
+        self.create_subscription(JointState,   '/joint_states',    self._cb_joint_state,     10)
+        self.create_subscription(PointStamped, '/target_point',    self._cb_target_point,    10)
+        self.create_subscription(Bool,         '/elevator_ready',  self._cb_elevator_ready,  10)
 
         # 카메라 공통 구독 (항상 받되, state에 따라 처리)
         self.create_subscription(CameraInfo, '/camera/camera/color/camera_info',
@@ -255,6 +256,13 @@ class UnifiedButtonNode(Node):
         self._home_timer = self.create_timer(2.0, self._move_to_home_once)
 
     # ─── 공통 콜백 ───────────────────────────────────────────────────────────
+
+    def _cb_elevator_ready(self, msg: Bool):
+        if self.state == WAIT:
+            self.get_logger().info('/elevator_ready 수신 → 숫자 버튼 Phase 시작')
+            self._elevator_ready_event.set()
+        else:
+            self.get_logger().warn(f'/elevator_ready 무시 (state={self.state})')
 
     def _cb_joint_state(self, msg: JointState):
         with self.lock:
@@ -490,22 +498,18 @@ class UnifiedButtonNode(Node):
         if phase_updown:
             self._fail_updown += 1
             count = self._fail_updown
-            retry_state = UPDOWN_READY
+            self.get_logger().warn(f'UP/DOWN 실패 {count}/{MAX_FAIL}회')
+            if count >= MAX_FAIL:
+                self.get_logger().error(f'연속 {MAX_FAIL}회 실패 → NEED_REPOSITION 발행')
+                self.status_pub.publish(String(data='NEED_REPOSITION'))
+                self._fail_updown = 0
+                self.state = IDLE
+            else:
+                self.state = UPDOWN_READY
         else:
-            self._fail_number += 1
-            count = self._fail_number
-            retry_state = NUMBER_READY
-
-        self.get_logger().warn(f'실패 {count}/{MAX_FAIL}회')
-
-        if count >= MAX_FAIL:
-            self.get_logger().error(f'연속 {MAX_FAIL}회 실패 → NEED_REPOSITION 발행')
-            self.status_pub.publish(String(data='NEED_REPOSITION'))
-            self._fail_updown = 0
-            self._fail_number = 0
-            self.state = IDLE
-        else:
-            self.state = retry_state
+            # 숫자 버튼은 Scout Mini 탑승 후 재시도 → 무한 재시도
+            self.get_logger().warn('숫자 버튼 실패 → 재시도')
+            self.state = NUMBER_READY
 
     def _get_green_ratio(self) -> float | None:
         """저장된 bbox ROI의 green 픽셀 비율 반환. 확인 불가 시 None."""
@@ -530,29 +534,6 @@ class UnifiedButtonNode(Node):
             return True
         self.get_logger().info(f'버튼 점등 확인: green_ratio={ratio:.3f} (기준 {LIT_GREEN_RATIO})')
         return ratio > LIT_GREEN_RATIO
-
-    def _wait_for_button_unlit(self):
-        """버튼 불 꺼질 때까지 대기 (= 엘리베이터 도착). 타임아웃 시 그냥 진행."""
-        self.get_logger().info(
-            f'버튼 소등 대기 중 (최대 {ELEVATOR_WAIT_TIMEOUT:.0f}초)...')
-        deadline = time.time() + ELEVATOR_WAIT_TIMEOUT
-        last_log  = time.time()
-        while time.time() < deadline:
-            ratio = self._get_green_ratio()
-            if ratio is None:
-                self.get_logger().warn('소등 확인 불가 (프레임/bbox 없음) → 진행')
-                return
-            if time.time() - last_log >= 5.0:
-                self.get_logger().info(f'소등 대기 중... green_ratio={ratio:.3f}')
-                last_log = time.time()
-            if ratio <= LIT_GREEN_RATIO:
-                self.get_logger().info(
-                    f'✅ 버튼 소등 감지! (green_ratio={ratio:.3f}) 엘리베이터 도착')
-                self.status_pub.publish(String(data='ELEVATOR_ARRIVED'))
-                return
-            time.sleep(UNLIT_CHECK_INTERVAL)
-        self.get_logger().warn(
-            f'소등 감지 타임아웃 ({ELEVATOR_WAIT_TIMEOUT:.0f}초) → 강제 진행')
 
     def _press_button(self, X: float, Y: float, Z: float, label: str = ''):
         phase_updown = (self.state == UPDOWN_PRESS)
@@ -602,9 +583,11 @@ class UnifiedButtonNode(Node):
             return
 
         self._fail_updown = 0
-        self.get_logger().info('✅ UP/DOWN 버튼 점등 확인! 엘리베이터 도착 대기...')
-        self.status_pub.publish(String(data='BUTTON_PRESSED'))
-        self._wait_for_button_unlit()
+        self.get_logger().info('✅ UP/DOWN 버튼 점등 확인! Scout Mini /elevator_ready 대기 중...')
+        self.status_pub.publish(String(data='UPDOWN_PRESSED'))
+
+        self._elevator_ready_event.clear()
+        self._elevator_ready_event.wait()  # Scout Mini 탑승 완료 신호 대기
         self._start_number_phase()
 
     def _start_number_phase(self):
