@@ -273,11 +273,26 @@ ros2 run tf2_ros static_transform_publisher \
 | `DEST_HOVER` | 0.013 | 0.298 | 0.100 | 목적지 호버·위로 후퇴 (배달) |
 | `DEST_PLACE` | 0.013 | 0.298 | 0.040 | 목적지에 내려놓기 (배달) |
 
+**팀 통합용 — 토픽 트리거 방식 (`arm_delivery.py`)**
+
 ```bash
-# 터미널 4 — 자동 실행 (스텝 간 1.5초 자동 진행)
+# 터미널 4
+python3 nodes/real_robot/arm_delivery.py
+
+# 픽업 시작
+ros2 topic pub --once /start_pickup std_msgs/Bool "{data: true}"
+
+# 배달 시작 (픽업 완료 + 호수 인식 후)
+ros2 topic pub --once /aligned_ready std_msgs/Bool "{data: true}"
+```
+
+**단독 테스트용**
+
+```bash
+# 자동 실행 (스텝 간 1.5초 자동 진행)
 python3 nodes/real_robot/real_robot_delivery.py
 
-# 또는 수동 실행 (Enter로 한 스텝씩 진행)
+# 수동 실행 (Enter로 한 스텝씩 진행)
 python3 nodes/real_robot/test_delivery_motion.py
 ```
 
@@ -293,14 +308,24 @@ python3 nodes/real_robot/test_delivery_motion.py
 
 YOLOv8 + YOLO-seg + EasyOCR로 버튼을 인식하고 누릅니다. YOLO 모델(`yolo/weights/`)이 레포에 포함되어 있어 추가 학습 없이 바로 실행 가능합니다.
 
-```bash
-# 터미널 4 — 엘리베이터 버튼 노드
-python3 nodes/real_robot/real_robot_unified.py
+**팀 통합용 (`arm_elevator.py`)**
 
-# 터미널 5 — 층수 입력 (B2층 예시)
+```bash
+# 터미널 4
+python3 nodes/real_robot/arm_elevator.py
+
+# 층수 입력 (B2층 예시)
 ros2 topic pub --once /target_floor std_msgs/Int32 "{data: -2}"
 
-# 터미널 6 — Scout Mini 탑승 완료 수동 신호 (테스트용)
+# Scout Mini 탑승 완료 수동 신호 (테스트용)
+ros2 topic pub --once /elevator_ready std_msgs/Bool "{data: true}"
+```
+
+**단독 테스트용 (`real_robot_unified.py`)**
+
+```bash
+python3 nodes/real_robot/real_robot_unified.py
+ros2 topic pub --once /target_floor std_msgs/Int32 "{data: -2}"
 ros2 topic pub --once /elevator_ready std_msgs/Bool "{data: true}"
 ```
 
@@ -388,8 +413,11 @@ python3 nodes/simulation/isaac_sim_yolo_moveit.py
 elevator-button-robot/
 ├── nodes/
 │   ├── real_robot/
-│   │   ├── real_robot_unified.py       # ★ 엘리베이터 버튼 노드 (UP/DOWN → 숫자 전체 시퀀스)
-│   │   ├── real_robot_delivery.py      # ★ 픽업/배달 자동 실행 노드 (스텝 간 자동 진행)
+│   │   ├── arm_elevator.py             # ★ 엘리베이터 버튼 노드 — 팀 통합용 (토픽 트리거)
+│   │   ├── arm_delivery.py             # ★ 픽업/배달 노드 — 팀 통합용 (토픽 트리거)
+│   │   ├── scout.py                    # Scout Mini 통합 노드 뼈대 (이동 로직 TODO)
+│   │   ├── real_robot_unified.py       # 엘리베이터 버튼 노드 — 단독 테스트용
+│   │   ├── real_robot_delivery.py      # 픽업/배달 자동 실행 노드 — 단독 테스트용
 │   │   ├── test_delivery_motion.py     # 픽업/배달 수동 데모 (Enter로 스텝별 진행)
 │   │   ├── contact_detector.py         # 접촉 감지 — Effort Threshold 방식
 │   │   ├── contact_detector_svm.py     # ★ 접촉 감지 — SVM 방식 (권장)
