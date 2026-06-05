@@ -179,6 +179,7 @@ DELIVER_STEPS = [
     ('그리퍼 열기 (박스 놓기)',           None,                 None,         GRIPPER_OPEN),
     ('위로 호버',                         None,                 DEST_HOVER,   None),
     ('엘리베이터 홈 복귀',               ELEVATOR_HOME_JOINTS, None,         None),
+    ('그리퍼 닫기 (대기 자세)',           None,                 None,         GRIPPER_ELEVATOR),
 ]
 
 # ─── 상태 상수 ────────────────────────────────────────────────────────────────
