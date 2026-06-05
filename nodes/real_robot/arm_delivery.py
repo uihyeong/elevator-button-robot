@@ -541,8 +541,7 @@ class ArmDeliveryNode(Node):
 
         # 2. 호수 번호판 인식
         self.state = ROOM_SIGN
-        self.get_logger().info('호수 번호판 인식 시작 → ROOM_SIGN_JOINTS 이동')
-        self.move_to_joints(ROOM_SIGN_JOINTS, 'room_sign')
+        self.get_logger().info('호수 번호판 인식 시작')
 
         self._frame_count = 0
         self._ocr_active  = True
