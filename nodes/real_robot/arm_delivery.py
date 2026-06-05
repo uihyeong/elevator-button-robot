@@ -261,8 +261,8 @@ class ArmDeliveryNode(Node):
         self._frame_lock    = threading.Lock()
         self._frame_count   = 0
         self.depth_image    = None
-        self.fx, self.fy    = 615.0, 615.0
-        self.cx, self.cy    = 320.0, 240.0
+        self.fx, self.fy    = 1380.0, 1380.0
+        self.cx, self.cy    = 960.0, 540.0
 
         # TF
         self.tf_buffer   = tf2_ros.Buffer()

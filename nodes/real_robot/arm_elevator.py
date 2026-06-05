@@ -68,7 +68,7 @@ JOINT_LIMITS = [
 ]
 
 JOINT_NAMES        = ['joint1', 'joint2', 'joint3', 'joint4']
-HOME_JOINTS        = [-3.141, -0.9948, 0.6981, 0.2967]
+HOME_JOINTS        = [-3.1400, -1.9190, 1.2701, -0.7762]
 NUMBER_HOME_JOINTS = [-3.141, -0.9948, 0.6981, 0.6780]
 MOVE_SPEED   = 0.5
 MIN_DURATION = 2.0
@@ -173,8 +173,8 @@ class ArmElevatorNode(Node):
         self.moving         = False
 
         self.depth_image = None
-        self.fx, self.fy = 615.0, 615.0
-        self.cx, self.cy = 320.0, 240.0
+        self.fx, self.fy = 1380.0, 1380.0
+        self.cx, self.cy = 960.0, 540.0
 
         self.ocr_cache   = {}
         self.frame_count = 0
@@ -202,7 +202,7 @@ class ArmElevatorNode(Node):
 
         self.create_subscription(CameraInfo, '/camera/camera/color/camera_info',
                                  self._cb_camera_info, 10)
-        self.create_subscription(Image, '/camera/camera/depth/image_rect_raw',
+        self.create_subscription(Image, '/camera/camera/aligned_depth_to_color/image_raw',
                                  self._cb_depth, 10)
 
         self.updown_model = None
