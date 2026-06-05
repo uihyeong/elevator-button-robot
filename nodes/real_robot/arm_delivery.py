@@ -166,18 +166,19 @@ PICKUP_STEPS = [
 ]
 
 DELIVER_STEPS = [
-    ('홈',                              HOME_JOINTS,         None,         None),
-    ('바구니 확인 (joint4 틸트)',         BASKET_LOOK_JOINTS,  None,         None),
-    ('그리퍼 열기 (접근 전)',             None,                None,         GRIPPER_OPEN),
-    ('바구니 박스 잡기',                  BASKET_GRIP_JOINTS,  None,         None),
-    ('그리퍼 닫기 (잡기)',                None,                None,         GRIPPER_CLOSE),
-    ('박스 들어올리기',                   None,                BASKET_HOVER, None),
-    ('목적지 방향 확인 (joint1 오른쪽)',  TABLE_LOOK_JOINTS,   None,         None),
-    ('목적지 책상 위 호버',               None,                DEST_HOVER,   None),
-    ('목적지에 내려놓기',                 None,                DEST_PLACE,   None),
-    ('그리퍼 열기 (박스 놓기)',           None,                None,         GRIPPER_OPEN),
-    ('위로 호버',                         None,                DEST_HOVER,   None),
-    ('홈 복귀',                           HOME_JOINTS,         None,         None),
+    ('홈',                              HOME_JOINTS,          None,         None),
+    ('바구니 확인 (joint4 틸트)',         BASKET_LOOK_JOINTS,   None,         None),
+    ('그리퍼 열기 (접근 전)',             None,                 None,         GRIPPER_OPEN),
+    ('바구니 박스 잡기',                  BASKET_GRIP_JOINTS,   None,         None),
+    ('그리퍼 닫기 (잡기)',                None,                 None,         GRIPPER_CLOSE),
+    ('바구니 확인 (잡기 후)',             BASKET_LOOK_JOINTS,   None,         None),
+    ('박스 들어올리기',                   None,                 BASKET_HOVER, None),
+    ('목적지 방향 확인 (joint1 오른쪽)',  TABLE_LOOK_JOINTS,    None,         None),
+    ('목적지 책상 위 호버',               None,                 DEST_HOVER,   None),
+    ('목적지에 내려놓기',                 None,                 DEST_PLACE,   None),
+    ('그리퍼 열기 (박스 놓기)',           None,                 None,         GRIPPER_OPEN),
+    ('위로 호버',                         None,                 DEST_HOVER,   None),
+    ('엘리베이터 홈 복귀',               ELEVATOR_HOME_JOINTS, None,         None),
 ]
 
 # ─── 상태 상수 ────────────────────────────────────────────────────────────────
