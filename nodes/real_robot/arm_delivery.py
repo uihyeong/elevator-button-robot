@@ -110,9 +110,11 @@ BASKET_LOOK_JOINTS  = [-3.116, -0.387,   0.755,   1.164]
 BASKET_PLACE_JOINTS = [3.1032,  0.00767, 1.41126, -1.41433]
 BASKET_GRIP_JOINTS  = [3.122,   0.457,   0.831,   0.305]
 ROOM_SIGN_JOINTS    = [-3.141, -2.0203,  1.5002,  -0.044]
+ELEVATOR_HOME_JOINTS = [-3.1400, -1.9190,  1.2701,  0.7240]
 
-GRIPPER_OPEN  = [0.020]
-GRIPPER_CLOSE = [0.006]
+GRIPPER_OPEN     = [0.020]
+GRIPPER_CLOSE    = [0.006]
+GRIPPER_ELEVATOR = [-0.007]
 
 MOVE_SPEED   = 0.4
 MIN_DURATION = 2.0
@@ -154,9 +156,13 @@ PICKUP_STEPS = [
     ('박스 위 호버',                     None,                TABLE_HOVER,  None),
     ('박스 잡기 위치',                   None,                TABLE_GRIP,   None),
     ('그리퍼 닫기 (잡기)',               None,                None,         GRIPPER_CLOSE),
-    ('바구니에 내려놓기',                BASKET_PLACE_JOINTS, None,         None),
-    ('그리퍼 열기 (박스 놓기)',          None,                None,         GRIPPER_OPEN),
-    ('홈 복귀',                          HOME_JOINTS,         None,         None),
+    ('바구니에 내려놓기',                BASKET_PLACE_JOINTS,  None,  None),
+    ('홈 복귀',                          HOME_JOINTS,          None,  None),
+    ('바구니 확인',                       BASKET_LOOK_JOINTS,   None,  None),
+    ('바구니 박스 잡기',                  BASKET_GRIP_JOINTS,   None,  None),
+    ('그리퍼 열기 (박스 놓기)',           None,                 None,  GRIPPER_OPEN),
+    ('엘리베이터 홈 복귀',               ELEVATOR_HOME_JOINTS, None,  None),
+    ('그리퍼 닫기 (대기 자세)',           None,                 None,  GRIPPER_ELEVATOR),
 ]
 
 DELIVER_STEPS = [
