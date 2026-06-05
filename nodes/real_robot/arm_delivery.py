@@ -392,7 +392,7 @@ class ArmDeliveryNode(Node):
             return False
         deadline = time.time() + timeout
         while time.time() < deadline:
-            frame = self.latest_frame
+            frame = self._latest_frame
             if frame is not None:
                 results = self._grab_model(frame, conf=YOLO_CONF, verbose=False)[0]
                 for box in results.boxes:
