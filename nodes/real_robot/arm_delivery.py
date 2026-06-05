@@ -77,7 +77,7 @@ ROOM_MODEL_PATH  = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_room.pt')
 ROOM_CONF        = 0.83
 OCR_INTERVAL     = 5
 
-YOLO_MODEL_PATH   = 'yolov8n.pt'
+YOLO_MODEL_PATH   = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_box.pt')
 YOLO_CONF         = 0.15
 GRAB_HOVER_OFFSET = 0.04   # 감지 지점 위 4cm 호버
 DETECT_Z_OFFSET   = -0.02
