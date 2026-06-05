@@ -69,7 +69,7 @@ JOINT_LIMITS = [
 
 JOINT_NAMES        = ['joint1', 'joint2', 'joint3', 'joint4']
 HOME_JOINTS        = [-3.1400, -1.9190, 1.2701,  0.7240]
-NUMBER_HOME_JOINTS = [-3.141, -0.9948, 0.6981, 0.6780]
+NUMBER_HOME_JOINTS = [-3.141, -0.9948, 0.6981, 0.7240]
 MOVE_SPEED   = 0.5
 MIN_DURATION = 2.0
 
