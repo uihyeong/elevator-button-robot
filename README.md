@@ -250,9 +250,9 @@ ros2 run tf2_ros static_transform_publisher \
 | 8 | 바구니에 내려놓기 | Joint `BASKET_PLACE_JOINTS` | 목적지 호버 | XYZ `DEST_HOVER` |
 | 9 | 홈 복귀 | Joint `HOME_JOINTS` | 목적지에 내려놓기 | XYZ `DEST_PLACE` |
 | 10 | 바구니 확인 | Joint `BASKET_LOOK_JOINTS` | 그리퍼 열기 | Gripper |
-| 11 | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` | 위로 호버 | XYZ `DEST_HOVER` |
-| 12 | 그리퍼 열기 | Gripper | 홈 복귀 | Joint `HOME_JOINTS` |
-| 13 | 엘리베이터 홈 복귀 | Joint `ELEVATOR_HOME_JOINTS` | | |
+| 11 | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` | 위로 호버 | XYZ `DEST_HOVER_HIGH` |
+| 12 | 그리퍼 열기 | Gripper | 엘리베이터 홈 복귀 | Joint `ELEVATOR_HOME_JOINTS` |
+| 13 | 엘리베이터 홈 복귀 | Joint `ELEVATOR_HOME_JOINTS` | 그리퍼 닫기 (대기 자세) | Gripper `-0.007` |
 | 14 | 그리퍼 닫기 (대기 자세) | Gripper `-0.007` | | |
 
 **Joint 직접 지령** — 절대 관절각 [rad], 위치 바뀌면 재실측 필요
@@ -273,7 +273,8 @@ ros2 run tf2_ros static_transform_publisher \
 | `TABLE_HOVER` | 0.013 | 0.298 | 0.100 | 박스 위 호버 (픽업) |
 | `TABLE_GRIP` | 0.013 | 0.298 | 0.040 | 박스 잡기 위치 (픽업) |
 | `BASKET_HOVER` | -0.165 | 0.009 | 0.123 | 박스 들어올리기 (배달) |
-| `DEST_HOVER` | 0.013 | 0.298 | 0.100 | 목적지 호버·위로 후퇴 (배달) |
+| `DEST_HOVER` | 0.013 | 0.298 | 0.100 | 목적지 호버 (배달) |
+| `DEST_HOVER_HIGH` | 0.013 | 0.298 | 0.115 | 위로 호버 +1.5cm (배달) |
 | `DEST_PLACE` | 0.013 | 0.298 | 0.040 | 목적지에 내려놓기 (배달) |
 
 **팀 통합용 — 토픽 트리거 방식 (`arm_delivery.py`)**

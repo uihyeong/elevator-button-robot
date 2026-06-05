@@ -125,8 +125,9 @@ STEP_DELAY   = 1.5  # 스텝 완료 후 다음 스텝 전 대기 (초)
 TABLE_HOVER  = ( 0.013,  0.298,  0.100)
 TABLE_GRIP   = ( 0.013,  0.298,  0.040)
 BASKET_HOVER = (-0.165,  0.009,  0.123)
-DEST_HOVER   = ( 0.013,  0.298,  0.100)
-DEST_PLACE   = ( 0.013,  0.298,  0.040)
+DEST_HOVER      = ( 0.013,  0.298,  0.100)
+DEST_HOVER_HIGH = ( 0.013,  0.298,  0.115)
+DEST_PLACE      = ( 0.013,  0.298,  0.040)
 
 # ─── sentinels ───────────────────────────────────────────────────────────────
 
@@ -177,7 +178,7 @@ DELIVER_STEPS = [
     ('목적지 책상 위 호버',               None,                 DEST_HOVER,   None),
     ('목적지에 내려놓기',                 None,                 DEST_PLACE,   None),
     ('그리퍼 열기 (박스 놓기)',           None,                 None,         GRIPPER_OPEN),
-    ('위로 호버',                         None,                 DEST_HOVER,   None),
+    ('위로 호버',                         None,                 DEST_HOVER_HIGH, None),
     ('엘리베이터 홈 복귀',               ELEVATOR_HOME_JOINTS, None,         None),
     ('그리퍼 닫기 (대기 자세)',           None,                 None,         GRIPPER_ELEVATOR),
 ]
