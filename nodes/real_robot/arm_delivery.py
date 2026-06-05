@@ -169,6 +169,7 @@ PICKUP_STEPS = [
 DELIVER_STEPS = [
     ('홈',                              HOME_JOINTS,          None,         None),
     ('바구니 확인 (joint4 틸트)',         BASKET_LOOK_JOINTS,   None,         None),
+    ('YOLO 박스 인식 대기',              YOLO_WAIT_BOX,        None,         None),
     ('그리퍼 열기 (접근 전)',             None,                 None,         GRIPPER_OPEN),
     ('바구니 박스 잡기',                  BASKET_GRIP_JOINTS,   None,         None),
     ('그리퍼 닫기 (잡기)',                None,                 None,         GRIPPER_CLOSE),
