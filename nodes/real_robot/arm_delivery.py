@@ -83,11 +83,7 @@ GRAB_HOVER_OFFSET = 0.04   # 감지 지점 위 4cm 호버
 DETECT_Z_OFFSET   = -0.02
 DETECT_Y_OFFSET   = -0.05
 
-HIGHLIGHT_CLASSES = {
-    'suitcase', 'backpack', 'handbag',
-    'book', 'bottle', 'cup', 'bowl', 'box',
-    'refrigerator',
-}
+HIGHLIGHT_CLASSES = {'Box'}
 
 # ─── 링크 파라미터 ────────────────────────────────────────────────────────────
 
