@@ -212,7 +212,8 @@ U2D2 연결 후 아래 공통 준비를 먼저 실행합니다.
 ros2 launch open_manipulator_x_bringup hardware.launch.py
 
 # 터미널 2 — D435 카메라
-ros2 launch realsense2_camera rs_launch.py align_depth.enable:=true
+ros2 launch realsense2_camera rs_launch.py align_depth.enable:=true \
+    rgb_camera.profile:=1920x1080x30
 
 # 터미널 3 — 카메라 TF 연결 (유지)
 ros2 run tf2_ros static_transform_publisher \
