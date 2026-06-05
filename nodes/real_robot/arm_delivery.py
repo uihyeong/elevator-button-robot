@@ -112,7 +112,7 @@ BASKET_GRIP_JOINTS  = [3.122,   0.457,   0.831,   0.305]
 ROOM_SIGN_JOINTS    = [-3.141, -2.0203,  1.5002,  -0.044]
 
 GRIPPER_OPEN  = [0.020]
-GRIPPER_CLOSE = [0.000]
+GRIPPER_CLOSE = [0.006]
 
 MOVE_SPEED   = 0.4
 MIN_DURATION = 2.0
@@ -126,15 +126,21 @@ BASKET_HOVER = (-0.165,  0.009,  0.123)
 DEST_HOVER   = ( 0.013,  0.298,  0.100)
 DEST_PLACE   = ( 0.013,  0.298,  0.040)
 
-# ─── AUTO_GRAB sentinel ───────────────────────────────────────────────────────
+# ─── sentinels ───────────────────────────────────────────────────────────────
 
 class _AutoGrab:
     """YOLO 감지 → IK → 잡기 자동화. joints 필드에 넣어 사용."""
     def __init__(self, fallback_xyz):
         self.fallback_xyz = fallback_xyz
 
+class _YoloWait:
+    """YOLO로 Box 감지될 때까지 대기 후 진행. joints 필드에 넣어 사용."""
+    def __init__(self, timeout=1.5):
+        self.timeout = timeout
+
 AUTO_GRAB_TABLE  = _AutoGrab(TABLE_GRIP)
 AUTO_GRAB_BASKET = _AutoGrab(BASKET_HOVER)
+YOLO_WAIT_BOX    = _YoloWait(timeout=1.5)
 
 # ─── 시퀀스 정의 ─────────────────────────────────────────────────────────────
 # 각 스텝: (설명, joints_or_AutoGrab_or_None, xyz_or_None, gripper_or_None)
@@ -142,7 +148,8 @@ AUTO_GRAB_BASKET = _AutoGrab(BASKET_HOVER)
 
 PICKUP_STEPS = [
     ('홈',                             HOME_JOINTS,         None,         None),
-    ('책상 방향 확인 (joint1 오른쪽)',   TABLE_LOOK_JOINTS,   None,         None),
+    ('책상 방향 + YOLO 박스 확인',       TABLE_LOOK_JOINTS,   None,         None),
+    ('YOLO 박스 인식 대기',              YOLO_WAIT_BOX,       None,         None),
     ('그리퍼 열기 (접근 전)',            None,                None,         GRIPPER_OPEN),
     ('박스 위 호버',                     None,                TABLE_HOVER,  None),
     ('박스 잡기 위치',                   None,                TABLE_GRIP,   None),
@@ -378,6 +385,23 @@ class ArmDeliveryNode(Node):
                 break
             time.sleep(0.05)
 
+    # ─── YOLO 박스 인식 대기 ────────────────────────────────────────────────────
+
+    def _wait_yolo_box(self, timeout: float) -> bool:
+        if self._grab_model is None:
+            return False
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            frame = self.latest_frame
+            if frame is not None:
+                results = self._grab_model(frame, conf=YOLO_CONF, verbose=False)[0]
+                for box in results.boxes:
+                    if results.names[int(box.cls)] in HIGHLIGHT_CLASSES:
+                        self.get_logger().info('YOLO 박스 감지 확인')
+                        return True
+            time.sleep(0.1)
+        return False
+
     # ─── AUTO_GRAB: YOLO 감지 → 3D 변환 → IK → 잡기 ─────────────────────────
 
     def _detect_and_grab(self, fallback_xyz) -> bool:
@@ -554,7 +578,10 @@ class ArmDeliveryNode(Node):
             if gripper is not None:
                 self.send_gripper(gripper)
 
-            if isinstance(joints, _AutoGrab):
+            if isinstance(joints, _YoloWait):
+                if not self._wait_yolo_box(joints.timeout):
+                    self.get_logger().warn('YOLO 박스 미감지 → 진행')
+            elif isinstance(joints, _AutoGrab):
                 if not self._detect_and_grab(joints.fallback_xyz):
                     self.get_logger().error(f'{label} 실패')
                     return False
