@@ -245,15 +245,15 @@ ros2 run tf2_ros static_transform_publisher \
 | 3 | YOLO 박스 인식 대기 | YOLO (1.5초) | 그리퍼 열기 | Gripper |
 | 4 | 그리퍼 열기 | Gripper | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` |
 | 5 | 박스 위 호버 | XYZ `TABLE_HOVER` | 그리퍼 닫기 | Gripper |
-| 6 | 박스 잡기 위치 | XYZ `TABLE_GRIP` | 박스 들어올리기 | XYZ `BASKET_HOVER` |
-| 7 | 그리퍼 닫기 | Gripper `0.006` | 목적지 방향 확인 | Joint `TABLE_LOOK_JOINTS` |
-| 8 | 바구니에 내려놓기 | Joint `BASKET_PLACE_JOINTS` | 목적지 호버 | XYZ `DEST_HOVER` |
-| 9 | 홈 복귀 | Joint `HOME_JOINTS` | 목적지에 내려놓기 | XYZ `DEST_PLACE` |
-| 10 | 바구니 확인 | Joint `BASKET_LOOK_JOINTS` | 그리퍼 열기 | Gripper |
-| 11 | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` | 위로 호버 | XYZ `DEST_HOVER_HIGH` |
-| 12 | 그리퍼 열기 | Gripper | 엘리베이터 홈 복귀 | Joint `ELEVATOR_HOME_JOINTS` |
-| 13 | 엘리베이터 홈 복귀 | Joint `ELEVATOR_HOME_JOINTS` | 그리퍼 닫기 (대기 자세) | Gripper `-0.007` |
-| 14 | 그리퍼 닫기 (대기 자세) | Gripper `-0.007` | | |
+| 6 | 박스 잡기 위치 | XYZ `TABLE_GRIP` | 바구니 확인 (잡기 후) | Joint `BASKET_LOOK_JOINTS` |
+| 7 | 그리퍼 닫기 | Gripper `0.006` | 박스 들어올리기 | XYZ `BASKET_HOVER` |
+| 8 | 바구니에 내려놓기 | Joint `BASKET_PLACE_JOINTS` | 목적지 방향 확인 | Joint `TABLE_LOOK_JOINTS` |
+| 9 | 홈 복귀 | Joint `HOME_JOINTS` | 목적지 호버 | XYZ `DEST_HOVER` |
+| 10 | 바구니 확인 | Joint `BASKET_LOOK_JOINTS` | 목적지에 내려놓기 | XYZ `DEST_PLACE` |
+| 11 | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` | 그리퍼 열기 | Gripper |
+| 12 | 그리퍼 열기 | Gripper | 위로 호버 | XYZ `DEST_HOVER_HIGH` |
+| 13 | 엘리베이터 홈 복귀 | Joint `ELEVATOR_HOME_JOINTS` | 엘리베이터 홈 복귀 | Joint `ELEVATOR_HOME_JOINTS` |
+| 14 | 그리퍼 닫기 (대기 자세) | Gripper `-0.007` | 그리퍼 닫기 (대기 자세) | Gripper `-0.007` |
 
 **Joint 직접 지령** — 절대 관절각 [rad], 위치 바뀌면 재실측 필요
 
