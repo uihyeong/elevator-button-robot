@@ -194,7 +194,7 @@ source ~/.bashrc
 sudo apt install ros-humble-realsense2-camera
 ```
 
-> 전체 설치 가이드 (U2D2 통신 설정 등): [ROBOTIS e-Manual — OpenMANIPULATOR-X Quick Start Guide](https://emanual.robotis.com/docs/en/platform/openmanipulator_x/quick_start_guide/)
+> 전체 설치 가이드 (U2D2 통신 설정 등): [ROBOTIS Docs — OpenMANIPULATOR-X Quick Start Guide](https://docs.robotis.com/docs/systems/openmanipulator_x/quick_start_guide/)
 
 ### 3. open_manipulator_patches 적용 (선택)
 
