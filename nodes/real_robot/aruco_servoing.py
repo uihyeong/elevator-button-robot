@@ -44,14 +44,14 @@ class ArucoServoing(Node):
         self.prev_error_x = 0.0
         self.tol_z = 0.03
         self.tol_x = 0.02
-        self.max_linear  = 0.25
-        self.max_angular = 0.25
+        self.max_linear  = 0.45
+        self.max_angular = 0.45
 
         # 블라인드 이동 속도
-        self.rotate_angular_speed = 0.25
-        self.blind_linear_speed   = 0.25
+        self.rotate_angular_speed = 0.45
+        self.blind_linear_speed   = 0.45
         self.rotate_duration = (np.pi / 2) / self.rotate_angular_speed
-        self.ramp_duration = 0.4   # 출발 덜컥임 방지: 속도 0→최대까지 선형 증가 시간(초)
+        self.ramp_duration = 0.2   # 출발 덜컥임 방지: 속도 0→최대까지 선형 증가 시간(초)
 
         # ── 실행 시퀀스 ──────────────────────────────────────────────
         # type: 'servo'       → 마커 서보잉 (marker_id, target_z, target_x)
@@ -75,7 +75,7 @@ class ArucoServoing(Node):
             {'type': 'wait_status', 'value': 'NUMBER_PRESSED'},
             {'type': 'backward',    'distance': 0.35},
             {'type': 'rotate',      'direction': -1},    # 90도 우회전
-            {'type': 'forward',     'distance': 2.3},
+            {'type': 'forward',     'distance': 2.9},
             {'type': 'pub_ready',   'topic': '/aligned_ready'},
         ]
 
@@ -306,7 +306,7 @@ class ArucoServoing(Node):
                                         self.step_index, self.current_step.copy())
                                     self.sequence.insert(
                                         self.step_index,
-                                        {'type': 'backward', 'distance': 0.2})
+                                        {'type': 'backward', 'distance': 0.35})
                                     self._advance_step()
                                     break
                         else:
