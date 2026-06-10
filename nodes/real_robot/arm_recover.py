@@ -22,6 +22,7 @@
 """
 
 import math
+import os
 import threading
 import time
 
@@ -30,9 +31,37 @@ from builtin_interfaces.msg import Duration
 from control_msgs.action import FollowJointTrajectory
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import CameraInfo, JointState
 from std_msgs.msg import Bool, String
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+
+try:
+    import cv2
+    import numpy as np
+    from cv_bridge import CvBridge
+    from sensor_msgs.msg import Image as ImageMsg
+    _CV_AVAILABLE = True
+except ImportError:
+    _CV_AVAILABLE = False
+
+try:
+    from ultralytics import YOLO as UltralyticsYOLO
+    _YOLO_AVAILABLE = True
+except ImportError:
+    _YOLO_AVAILABLE = False
+
+try:
+    import easyocr
+    _OCR_AVAILABLE = True
+except ImportError:
+    _OCR_AVAILABLE = False
+
+# ─── 모델 경로 ────────────────────────────────────────────────────────────────
+
+_REPO_ROOT      = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+ROOM_MODEL_PATH = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_room.pt')
+ROOM_CONF       = 0.83
+OCR_INTERVAL    = 5
 
 
 JOINT_LIMITS = [
@@ -52,6 +81,7 @@ TABLE_LOOK_JOINTS    = [1.571,  -1.3963,  1.2217,  0.5236]
 # HOME 계열(+3.141)과 같은 부호 쪽에 둬서 마지막 스텝의 +pi/-pi wrap(한 바퀴 회전)을 제거.
 ELEVATOR_HOME_JOINTS = [3.1400, -1.9190,  1.2701,  0.7240]
 
+ROOM_SIGN_JOINTS = [ 1.571, -2.0203,  1.5002, -0.044]
 HOOK_JOINTS      = [1.571, 0.468, -0.331, -0.206]
 
 # joint4만 올린 상태 (step 5): HOOK 위치에서 joint4만 변경
@@ -74,7 +104,7 @@ MAX_JOINT_STEP = 4.5
 # ─── 시퀀스 정의 ─────────────────────────────────────────────────────────────
 
 RECOVER_STEPS = [
-    ('엘리베이터 홈 (시작 자세)',         ELEVATOR_HOME_JOINTS),
+    ('호수 확인',                         ROOM_SIGN_JOINTS),
     ('오른쪽 확인',                       TABLE_LOOK_JOINTS),
     ('고리에 끼우기',                     HOOK_JOINTS),
     ('joint4 올리기 (백 들어올리기)',      HOOK_LIFT_JOINTS),
@@ -137,7 +167,38 @@ class ArmRecoverNode(Node):
         self.create_subscription(JointState, '/joint_states',    self._cb_joints,         10)
         self.create_subscription(Bool,       '/start_recover',   self._cb_start_recover,  10)
 
-        self._current_step_en = 'Waiting'
+        self._current_step_en  = 'Waiting'
+
+        # 카메라 / 호수 인식
+        self.bridge            = None
+        self._latest_frame     = None
+        self._frame_lock       = threading.Lock()
+        self._frame_count      = 0
+        self._ocr_active       = False
+        self._latest_room_text = None
+        self._latest_room_bbox = None
+        self._room_model       = None
+        self._ocr              = None
+
+        if _CV_AVAILABLE:
+            self.bridge = CvBridge()
+            self.create_subscription(
+                ImageMsg, '/camera/camera/color/image_raw', self._cb_image, 10)
+
+        if _YOLO_AVAILABLE and _CV_AVAILABLE:
+            try:
+                self._room_model = UltralyticsYOLO(ROOM_MODEL_PATH)
+                self.get_logger().info('호수 YOLO 모델 로드 완료')
+            except Exception as e:
+                self.get_logger().warn(f'호수 YOLO 로드 실패: {e}')
+
+        if _OCR_AVAILABLE and self._room_model is not None:
+            self.get_logger().info('EasyOCR 초기화 중...')
+            self._ocr = easyocr.Reader(['en'], gpu=False)
+            self.get_logger().info('EasyOCR 초기화 완료')
+
+        if _CV_AVAILABLE and self._room_model is not None:
+            threading.Thread(target=self._display_loop, daemon=True).start()
 
         self.get_logger().info('arm_recover 노드 시작. /start_recover 대기 중...')
         self._home_timer = self.create_timer(2.0, self._init_home)
@@ -147,6 +208,61 @@ class ArmRecoverNode(Node):
     def _cb_joints(self, msg):
         with self.lock:
             self.current_joints = msg
+
+    def _cb_image(self, msg: ImageMsg):
+        frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+        with self._frame_lock:
+            self._latest_frame = frame
+        if self._ocr_active:
+            self._process_room_sign(frame)
+
+    def _process_room_sign(self, frame):
+        if self._room_model is None:
+            return
+        self._frame_count += 1
+        if self._frame_count % OCR_INTERVAL != 0:
+            return
+        results = self._room_model(frame, conf=ROOM_CONF, verbose=False)
+        for box in results[0].boxes:
+            conf = float(box.conf)
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            h, w = frame.shape[:2]
+            roi = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
+            if roi.size == 0:
+                continue
+            room_text = self._run_ocr(roi)
+            if room_text:
+                self.get_logger().info(f'호수 인식: {room_text} (conf={conf:.2f})')
+                self._latest_room_text = room_text
+                self._latest_room_bbox = (x1, y1, x2, y2)
+
+    def _run_ocr(self, roi) -> str | None:
+        if self._ocr is None:
+            return None
+        results = self._ocr.readtext(roi, allowlist='0123456789BbGg', detail=0)
+        text = ''.join(results).strip()
+        return text if text else None
+
+    def _display_loop(self):
+        while rclpy.ok():
+            with self._frame_lock:
+                frame = self._latest_frame
+            if frame is None:
+                time.sleep(0.05)
+                continue
+            vis = frame.copy()
+            cv2.putText(vis, f'Step: {self._current_step_en}',
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            if self._latest_room_bbox is not None:
+                rx1, ry1, rx2, ry2 = self._latest_room_bbox
+                cv2.rectangle(vis, (rx1, ry1), (rx2, ry2), (0, 165, 255), 2)
+                cv2.putText(vis, f'Room: {self._latest_room_text}',
+                            (rx1, max(ry1 - 8, 12)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+            cv2.imshow('Recover', vis)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+            time.sleep(0.05)
 
     def _cb_start_recover(self, msg: Bool):
         if not msg.data:
@@ -162,7 +278,9 @@ class ArmRecoverNode(Node):
 
     def _run_recover_flow(self):
         self.get_logger().info('회수 시퀀스 시작')
+        self._ocr_active = True
         ok = self._run_sequence(RECOVER_STEPS, '회수')
+        self._ocr_active = False
         if not ok:
             self.get_logger().error('회수 실패')
             self.status_pub.publish(String(data='FAILED'))
@@ -275,6 +393,9 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if _CV_AVAILABLE:
+            import cv2 as _cv2
+            _cv2.destroyAllWindows()
         node.destroy_node()
         rclpy.shutdown()
 

@@ -109,7 +109,7 @@ TABLE_LOOK_JOINTS   = [1.571,  -1.3963,  1.2217,  0.5236]
 BASKET_LOOK_JOINTS  = [-3.116, -0.387,   0.755,   1.164]
 BASKET_PLACE_JOINTS = [3.1032,  0.00767, 1.41126, -1.41433]
 BASKET_GRIP_JOINTS  = [3.122,   0.457,   0.831,   0.305]
-ROOM_SIGN_JOINTS    = [-3.141, -2.0203,  1.5002,  -0.044]
+ROOM_SIGN_JOINTS    = [ 1.571, -2.0203,  1.5002,  -0.044]
 # joint1 을 +3.140(=+pi 쪽)으로. -3.140 과 물리적으로 같은 자세지만 HOME(+3.141)과
 # 같은 부호 쪽에 둬서 +pi/-pi wrap(한 바퀴 회전) 위험을 제거. (arm_recover 와 동일하게 유지)
 ELEVATOR_HOME_JOINTS = [3.1400, -1.9190,  1.2701,  0.7240]
@@ -172,6 +172,7 @@ PICKUP_STEPS = [
 ]
 
 DELIVER_STEPS = [
+    ('호수 확인',                        ROOM_SIGN_JOINTS,     None,         None),
     ('홈',                              HOME_JOINTS,          None,         None),
     ('바구니 확인 (joint4 틸트)',         BASKET_LOOK_JOINTS,   None,         None),
     ('YOLO 박스 인식 대기',              YOLO_WAIT_BOX,        None,         None),
@@ -302,6 +303,8 @@ class ArmDeliveryNode(Node):
         self._room_model    = None
         self._ocr           = None
         self._ocr_active    = False
+        self._latest_room_text = None
+        self._latest_room_bbox = None
 
         if _CV_AVAILABLE:
             self.bridge = CvBridge()
@@ -374,7 +377,9 @@ class ArmDeliveryNode(Node):
         threading.Thread(target=self._run_delivery_only_flow, daemon=True).start()
 
     def _run_delivery_only_flow(self):
+        self._ocr_active = True
         ok = self._run_sequence(DELIVER_STEPS, '배달')
+        self._ocr_active = False
         if not ok:
             self.get_logger().error('배달 실패')
             self.status_pub.publish(String(data='FAILED'))
@@ -427,6 +432,14 @@ class ArmDeliveryNode(Node):
 
             cv2.putText(vis, f'Step: {self._current_step_en}',
                         (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+
+            if self._latest_room_bbox is not None:
+                rx1, ry1, rx2, ry2 = self._latest_room_bbox
+                cv2.rectangle(vis, (rx1, ry1), (rx2, ry2), (0, 165, 255), 2)
+                label = f'Room: {self._latest_room_text}'
+                cv2.putText(vis, label, (rx1, max(ry1 - 8, 12)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+
             cv2.imshow('Delivery YOLO', vis)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -556,6 +569,8 @@ class ArmDeliveryNode(Node):
             if room_text:
                 self.get_logger().info(f'호수 인식: {room_text} (conf={conf:.2f})')
                 self.room_pub.publish(String(data=room_text))
+                self._latest_room_text = room_text
+                self._latest_room_bbox = (x1, y1, x2, y2)
 
     def _run_ocr(self, roi) -> str | None:
         if self._ocr is None:
@@ -596,8 +611,10 @@ class ArmDeliveryNode(Node):
 
         # 4. 배달 시퀀스
         self.state = DELIVER
+        self._ocr_active = True
         self.get_logger().info('배달 시퀀스 시작')
         ok = self._run_sequence(DELIVER_STEPS, '배달')
+        self._ocr_active = False
         if not ok:
             self.get_logger().error('배달 실패')
             self.status_pub.publish(String(data='FAILED'))
