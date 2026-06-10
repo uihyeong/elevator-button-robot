@@ -78,7 +78,7 @@ ROOM_CONF        = 0.83
 OCR_INTERVAL     = 5
 
 YOLO_MODEL_PATH   = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_box.pt')
-YOLO_CONF         = 0.15
+YOLO_CONF         = 0.70
 GRAB_HOVER_OFFSET = 0.04   # 감지 지점 위 4cm 호버
 DETECT_Z_OFFSET   = -0.02
 DETECT_Y_OFFSET   = -0.05
@@ -420,11 +420,25 @@ class ArmDeliveryNode(Node):
 
             results = self._grab_model(frame, conf=YOLO_CONF, verbose=False)[0]
             vis = frame.copy()
+            with self.lock:
+                depth = self.depth_image.copy() if self.depth_image is not None else None
             for box in results.boxes:
                 cls_name = results.names[int(box.cls)]
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 color         = (0, 255, 0) if cls_name in HIGHLIGHT_CLASSES else (160, 160, 160)
                 display_label = 'box' if cls_name in HIGHLIGHT_CLASSES else cls_name
+                if cls_name in HIGHLIGHT_CLASSES and depth is not None:
+                    cx_px = (x1 + x2) // 2
+                    cy_px = y1 + int((y2 - y1) * 0.75)
+                    h, w = depth.shape
+                    region = depth[max(0, cy_px-2):min(h, cy_px+3),
+                                   max(0, cx_px-2):min(w, cx_px+3)]
+                    valid = region[(region > 0.1) & ~np.isnan(region)]
+                    if len(valid) > 0:
+                        d = float(np.median(valid))
+                        X = (cx_px - self.cx) / self.fx * d
+                        Y = (cy_px - self.cy) / self.fy * d
+                        display_label = f'box ({X:.3f}, {Y:.3f}, {d:.3f})'
                 cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(vis, display_label,
                             (x1, max(y1 - 8, 12)),

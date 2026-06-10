@@ -58,10 +58,12 @@ except ImportError:
 
 # ─── 모델 경로 ────────────────────────────────────────────────────────────────
 
-_REPO_ROOT      = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-ROOM_MODEL_PATH = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_room.pt')
-ROOM_CONF       = 0.83
-OCR_INTERVAL    = 5
+_REPO_ROOT        = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+ROOM_MODEL_PATH   = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_room.pt')
+HANDLE_MODEL_PATH = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_handle.pt')
+ROOM_CONF         = 0.83
+HANDLE_CONF       = 0.50
+OCR_INTERVAL      = 5
 
 
 JOINT_LIMITS = [
@@ -175,15 +177,26 @@ class ArmRecoverNode(Node):
         self._frame_lock       = threading.Lock()
         self._frame_count      = 0
         self._ocr_active       = False
+        self._handle_active    = False
         self._latest_room_text = None
         self._latest_room_bbox = None
         self._room_model       = None
+        self._handle_model     = None
+        self._latest_handle_bbox = None
+        self._latest_handle_xyz  = None
         self._ocr              = None
+        self.depth_image       = None
+        self.fx, self.fy       = 1380.0, 1380.0
+        self.cx, self.cy       = 960.0,  540.0
 
         if _CV_AVAILABLE:
             self.bridge = CvBridge()
             self.create_subscription(
-                ImageMsg, '/camera/camera/color/image_raw', self._cb_image, 10)
+                ImageMsg,   '/camera/camera/color/image_raw',                    self._cb_image,       10)
+            self.create_subscription(
+                ImageMsg,   '/camera/camera/aligned_depth_to_color/image_raw',   self._cb_depth,       10)
+            self.create_subscription(
+                CameraInfo, '/camera/camera/color/camera_info',                  self._cb_camera_info, 10)
 
         if _YOLO_AVAILABLE and _CV_AVAILABLE:
             try:
@@ -191,6 +204,11 @@ class ArmRecoverNode(Node):
                 self.get_logger().info('호수 YOLO 모델 로드 완료')
             except Exception as e:
                 self.get_logger().warn(f'호수 YOLO 로드 실패: {e}')
+            try:
+                self._handle_model = UltralyticsYOLO(HANDLE_MODEL_PATH)
+                self.get_logger().info('핸들 YOLO 모델 로드 완료')
+            except Exception as e:
+                self.get_logger().warn(f'핸들 YOLO 로드 실패: {e}')
 
         if _OCR_AVAILABLE and self._room_model is not None:
             self.get_logger().info('EasyOCR 초기화 중...')
@@ -215,6 +233,18 @@ class ArmRecoverNode(Node):
             self._latest_frame = frame
         if self._ocr_active:
             self._process_room_sign(frame)
+        if self._handle_active:
+            self._detect_handle(frame)
+
+    def _cb_depth(self, msg: ImageMsg):
+        import numpy as _np
+        raw = self.bridge.imgmsg_to_cv2(msg, desired_encoding='16UC1')
+        with self.lock:
+            self.depth_image = raw.astype(_np.float32) / 1000.0
+
+    def _cb_camera_info(self, msg: CameraInfo):
+        self.fx = msg.k[0]; self.fy = msg.k[4]
+        self.cx = msg.k[2]; self.cy = msg.k[5]
 
     def _process_room_sign(self, frame):
         if self._room_model is None:
@@ -235,6 +265,39 @@ class ArmRecoverNode(Node):
                 self.get_logger().info(f'호수 인식: {room_text} (conf={conf:.2f})')
                 self._latest_room_text = room_text
                 self._latest_room_bbox = (x1, y1, x2, y2)
+
+    def _detect_handle(self, frame):
+        if self._handle_model is None:
+            return
+        results = self._handle_model(frame, conf=HANDLE_CONF, verbose=False)[0]
+        best_box, best_conf = None, 0.0
+        for box in results.boxes:
+            conf = float(box.conf)
+            if conf > best_conf:
+                best_conf = conf
+                best_box  = box
+        if best_box is None:
+            return
+        x1, y1, x2, y2 = map(int, best_box.xyxy[0])
+        self._latest_handle_bbox = (x1, y1, x2, y2)
+
+        cx_px = (x1 + x2) // 2
+        cy_px = (y1 + y2) // 2
+        with self.lock:
+            depth = self.depth_image.copy() if self.depth_image is not None else None
+        if depth is None:
+            return
+        h, w = depth.shape
+        region = depth[max(0, cy_px-2):min(h, cy_px+3),
+                       max(0, cx_px-2):min(w, cx_px+3)]
+        valid = region[(region > 0.1) & ~np.isnan(region)]
+        if len(valid) == 0:
+            return
+        d = float(np.median(valid))
+        X = (cx_px - self.cx) / self.fx * d
+        Y = (cy_px - self.cy) / self.fy * d
+        Z = d
+        self._latest_handle_xyz = (X, Y, Z)
 
     def _run_ocr(self, roi) -> str | None:
         if self._ocr is None:
@@ -259,6 +322,16 @@ class ArmRecoverNode(Node):
                 cv2.putText(vis, f'Room: {self._latest_room_text}',
                             (rx1, max(ry1 - 8, 12)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+            if self._latest_handle_bbox is not None:
+                hx1, hy1, hx2, hy2 = self._latest_handle_bbox
+                cv2.rectangle(vis, (hx1, hy1), (hx2, hy2), (0, 255, 0), 2)
+                label = 'handle'
+                if self._latest_handle_xyz is not None:
+                    X, Y, Z = self._latest_handle_xyz
+                    label = f'handle ({X:.3f}, {Y:.3f}, {Z:.3f})'
+                cv2.putText(vis, label,
+                            (hx1, max(hy1 - 8, 12)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             cv2.imshow('Recover', vis)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -300,13 +373,16 @@ class ArmRecoverNode(Node):
         for i, (label, joints) in enumerate(steps):
             self.get_logger().info(f'[{i+1}/{len(steps)}] {label}')
             self._current_step_en = f'[{i+1}/{len(steps)}] {label}'
+            self._handle_active = (label == '오른쪽 확인')
             time.sleep(STEP_DELAY)
 
             if joints is not None:
                 if not self.move_to_joints(joints, label):
                     self.get_logger().error(f'{label} 실패')
+                    self._handle_active = False
                     return False
 
+        self._handle_active = False
         self._current_step_en = f'{name} Done'
         self.get_logger().info(f'{name} 시퀀스 완료')
         return True
