@@ -95,7 +95,7 @@ L4    = 0.126
 
 JOINT_LIMITS = [
     (-math.pi, math.pi),
-    (-1.5,     1.5),
+    (-2.0,     1.5),
     (-1.5,     1.4),
     (-1.7,     1.97),
 ]
@@ -112,7 +112,7 @@ BASKET_GRIP_JOINTS  = [3.122,   0.457,   0.831,   0.305]
 ROOM_SIGN_JOINTS    = [ 1.571, -2.0203,  1.5002,  -0.044]
 # joint1 을 +3.140(=+pi 쪽)으로. -3.140 과 물리적으로 같은 자세지만 HOME(+3.141)과
 # 같은 부호 쪽에 둬서 +pi/-pi wrap(한 바퀴 회전) 위험을 제거. (arm_recover 와 동일하게 유지)
-ELEVATOR_HOME_JOINTS = [3.1400, -1.9190,  1.2701,  0.6381]
+ELEVATOR_HOME_JOINTS = [3.1400, -1.9190,  1.2701,  0.7240]
 
 GRIPPER_OPEN     = [0.020]
 GRIPPER_CLOSE    = [0.006]
