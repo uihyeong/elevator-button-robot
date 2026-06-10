@@ -44,13 +44,14 @@ class ArucoServoing(Node):
         self.prev_error_x = 0.0
         self.tol_z = 0.03
         self.tol_x = 0.02
-        self.max_linear  = 0.15
-        self.max_angular = 0.1
+        self.max_linear  = 0.25
+        self.max_angular = 0.25
 
         # 블라인드 이동 속도
-        self.rotate_angular_speed = 0.2
-        self.blind_linear_speed   = 0.1
+        self.rotate_angular_speed = 0.25
+        self.blind_linear_speed   = 0.25
         self.rotate_duration = (np.pi / 2) / self.rotate_angular_speed
+        self.ramp_duration = 0.4   # 출발 덜컥임 방지: 속도 0→최대까지 선형 증가 시간(초)
 
         # ── 실행 시퀀스 ──────────────────────────────────────────────
         # type: 'servo'       → 마커 서보잉 (marker_id, target_z, target_x)
@@ -74,7 +75,7 @@ class ArucoServoing(Node):
             {'type': 'wait_status', 'value': 'NUMBER_PRESSED'},
             {'type': 'backward',    'distance': 0.35},
             {'type': 'rotate',      'direction': -1},    # 90도 우회전
-            {'type': 'servo',       'marker_id': 2, 'target_z': 0.30, 'target_x': 0.0},
+            {'type': 'forward',     'distance': 2.3},
             {'type': 'pub_ready',   'topic': '/aligned_ready'},
         ]
 
@@ -86,6 +87,7 @@ class ArucoServoing(Node):
         self._waiting_status   = None
         self._mission_floor    = None
         self._pickup_done_recv = False
+        self._x_stuck_start    = None
 
         self.get_logger().info('aruco_servoing 대기 중. /start_pickup + /mission_floor 수신 후 시작.')
 
@@ -147,6 +149,7 @@ class ArucoServoing(Node):
         if stype == 'servo':
             self.state = 'servoing'
             self.prev_error_x = 0.0
+            self._x_stuck_start = None
 
         elif stype == 'rotate':
             self.state = 'rotating'
@@ -214,7 +217,8 @@ class ArucoServoing(Node):
         elif self.state == 'rotating':
             elapsed = (self.get_clock().now() - self.step_start_time).nanoseconds / 1e9
             if elapsed < self.rotate_duration:
-                twist.angular.z = self.rotate_angular_speed * self.current_step['direction']
+                ramp = min(1.0, elapsed / self.ramp_duration)
+                twist.angular.z = self.rotate_angular_speed * self.current_step['direction'] * ramp
                 label = 'RIGHT' if self.current_step['direction'] < 0 else 'LEFT'
                 cv2.putText(frame, f"ROTATING {label} 90deg...",
                             (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 165, 255), 2)
@@ -225,7 +229,8 @@ class ArucoServoing(Node):
         elif self.state == 'forward':
             elapsed = (self.get_clock().now() - self.step_start_time).nanoseconds / 1e9
             if elapsed < self.current_step['duration']:
-                twist.linear.x = self.blind_linear_speed
+                ramp = min(1.0, elapsed / self.ramp_duration)
+                twist.linear.x = self.blind_linear_speed * ramp
                 cv2.putText(frame, f"FORWARD {self.current_step['distance']}m...",
                             (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 165, 0), 2)
             else:
@@ -235,7 +240,8 @@ class ArucoServoing(Node):
         elif self.state == 'backward':
             elapsed = (self.get_clock().now() - self.step_start_time).nanoseconds / 1e9
             if elapsed < self.current_step['duration']:
-                twist.linear.x = -self.blind_linear_speed
+                ramp = min(1.0, elapsed / self.ramp_duration)
+                twist.linear.x = -self.blind_linear_speed * ramp
                 cv2.putText(frame, f"BACKWARD {self.current_step['distance']}m...",
                             (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 165), 2)
             else:
@@ -281,8 +287,31 @@ class ArucoServoing(Node):
                         self.get_logger().info(
                             f'✅ ID={marker_id} 정렬 완료! ({target_z*100:.0f}cm)')
                         self.prev_error_x = 0.0
+                        self._x_stuck_start = None
                         self._advance_step()
                     else:
+                        # Z는 OK인데 X만 오차 → stuck 타이머 관리
+                        if abs(error_z) < self.tol_z and abs(error_x) >= self.tol_x:
+                            if self._x_stuck_start is None:
+                                self._x_stuck_start = self.get_clock().now()
+                            else:
+                                stuck_sec = (
+                                    self.get_clock().now() - self._x_stuck_start
+                                ).nanoseconds / 1e9
+                                if stuck_sec >= 10.0:
+                                    self.get_logger().warn(
+                                        f'⚠️ X축 stuck {stuck_sec:.1f}s → 20cm 후진 후 재시도')
+                                    self._x_stuck_start = None
+                                    self.sequence.insert(
+                                        self.step_index, self.current_step.copy())
+                                    self.sequence.insert(
+                                        self.step_index,
+                                        {'type': 'backward', 'distance': 0.2})
+                                    self._advance_step()
+                                    break
+                        else:
+                            self._x_stuck_start = None
+
                         vel_z = self.kp_z * error_z
                         vel_z = max(-self.max_linear, min(self.max_linear, vel_z))
 

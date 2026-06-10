@@ -68,8 +68,8 @@ JOINT_LIMITS = [
 ]
 
 JOINT_NAMES        = ['joint1', 'joint2', 'joint3', 'joint4']
-HOME_JOINTS        = [+3.1400, -1.9190, 1.2701,  0.7240]
-NUMBER_HOME_JOINTS = [+3.1400, -1.9190, 1.2701,  0.7240]
+HOME_JOINTS        = [+3.1400, -1.9190, 1.2701,  0.6381]
+NUMBER_HOME_JOINTS = [+3.1400, -1.9190, 1.2701,  0.6381]
 MOVE_SPEED   = 0.5
 MIN_DURATION = 2.0
 # 단일 관절 1회 이동 안전 상한(rad). 이보다 크면 위험 동작(한 바퀴 회전 등)으로 보고 차단.
