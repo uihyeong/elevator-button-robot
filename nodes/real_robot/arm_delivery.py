@@ -120,7 +120,7 @@ GRIPPER_ELEVATOR = [-0.007]
 
 MOVE_SPEED   = 0.4
 MIN_DURATION = 2.0
-STEP_DELAY   = 1.5  # 스텝 완료 후 다음 스텝 전 대기 (초)
+STEP_DELAY   = 1.0  # 스텝 완료 후 다음 스텝 전 대기 (초)
 # 단일 관절 1회 이동 안전 상한(rad). 이보다 크면 위험 동작으로 보고 차단(한 바퀴 회전 방지).
 # 180°(π) 정상 이동은 허용하고 360°(2π) 회전만 막도록 4.5 로 통일(3 노드 공통).
 MAX_JOINT_STEP = 4.5
@@ -298,6 +298,7 @@ class ArmDeliveryNode(Node):
         # YOLO (박스 감지용)
         self._grab_model      = None
         self._current_step_en = 'Waiting'
+        self._box_yolo_active = False  # TABLE_LOOK_JOINTS 스텝에서만 True
 
         # 호수 인식용
         self._room_model    = None
@@ -415,6 +416,21 @@ class ArmDeliveryNode(Node):
             with self._frame_lock:
                 frame = self._latest_frame
             if frame is None:
+                time.sleep(0.05)
+                continue
+
+            if not self._box_yolo_active:
+                vis = frame.copy()
+                cv2.putText(vis, f'Step: {self._current_step_en}',
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                if self._latest_room_bbox is not None:
+                    rx1, ry1, rx2, ry2 = self._latest_room_bbox
+                    cv2.rectangle(vis, (rx1, ry1), (rx2, ry2), (0, 165, 255), 2)
+                    cv2.putText(vis, f'Room: {self._latest_room_text}',
+                                (rx1, max(ry1 - 8, 12)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+                cv2.imshow('Delivery YOLO', vis)
+                cv2.waitKey(1)
                 time.sleep(0.05)
                 continue
 
@@ -650,6 +666,8 @@ class ArmDeliveryNode(Node):
         for i, (label, joints, xyz, gripper) in enumerate(steps):
             self.get_logger().info(f'[{i+1}/{len(steps)}] {label}')
             self._current_step_en = f'[{i+1}/{len(steps)}] {label}'
+            # 박스 YOLO는 오른쪽으로 돌았을때(TABLE_LOOK_JOINTS)와 YOLO_WAIT 스텝에서만 활성
+            self._box_yolo_active = (joints is TABLE_LOOK_JOINTS or isinstance(joints, _YoloWait))
             time.sleep(STEP_DELAY)
 
             if gripper is not None:
@@ -674,6 +692,7 @@ class ArmDeliveryNode(Node):
                         self.get_logger().error(f'{label} 실패')
                         return False
 
+        self._box_yolo_active = False
         self._current_step_en = f'{name} Done'
         self.get_logger().info(f'{name} 시퀀스 완료')
         return True
