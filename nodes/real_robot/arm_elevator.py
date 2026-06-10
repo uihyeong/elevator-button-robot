@@ -72,6 +72,9 @@ HOME_JOINTS        = [-3.1400, -1.9190, 1.2701,  0.7240]
 NUMBER_HOME_JOINTS = [-3.1400, -1.9190, 1.2701,  0.7240]
 MOVE_SPEED   = 0.5
 MIN_DURATION = 2.0
+# 단일 관절 1회 이동 안전 상한(rad). 이보다 크면 위험 동작(한 바퀴 회전 등)으로 보고 차단.
+# 엘리베이터 팔은 홈(-pi)↔버튼(≈0) 약 180°(π) 이동이 정상이므로 그보다 크게 둔다.
+MAX_JOINT_STEP = 4.5
 
 # ─── 인식 파라미터 ────────────────────────────────────────────────────────────
 
@@ -138,7 +141,13 @@ def _shortest_path(target: float, current: float) -> float:
 
 def make_trajectory(target_joints: list, current_joints: list, speed: float = MOVE_SPEED):
     target_joints = [_shortest_path(t, c) for t, c in zip(target_joints, current_joints)]
+    # 관절 한계로 클램프 (_shortest_path 는 한계를 무시하므로 필수)
+    target_joints = [max(lo, min(hi, t))
+                     for t, (lo, hi) in zip(target_joints, JOINT_LIMITS)]
     max_disp = max(abs(t - c) for t, c in zip(target_joints, current_joints))
+    # 과대 이동(한 바퀴 회전 등)이면 None 반환 → 호출부에서 중단
+    if max_disp > MAX_JOINT_STEP:
+        return None, max_disp
     duration = max(max_disp / speed, MIN_DURATION)
 
     traj = JointTrajectory()
@@ -668,13 +677,26 @@ class ArmElevatorNode(Node):
 
         with self.lock:
             js = self.current_joints
-        current = [0.0] * 4
-        if js is not None:
-            for i, name in enumerate(JOINT_NAMES):
-                if name in js.name:
-                    current[i] = js.position[js.name.index(name)]
+        # 안전장치: /joint_states 가 없으면 현재값을 0 으로 가정하지 않는다.
+        # (0 으로 가정하면 +pi/-pi 경계에서 한 바퀴 회전하는 위험 동작이 발생)
+        if js is None:
+            self.get_logger().error('/joint_states 미수신 → 안전을 위해 이동 중단')
+            return False
+        current = [None] * 4
+        for i, name in enumerate(JOINT_NAMES):
+            if name in js.name:
+                current[i] = js.position[js.name.index(name)]
+        if any(c is None for c in current):
+            self.get_logger().error(f'joint_states 관절 누락 {current} → 이동 중단')
+            return False
 
         traj, duration = make_trajectory(target_joints, current)
+        if traj is None:
+            self.get_logger().error(
+                f'단일 관절 이동량 {duration:.2f}rad 과대(>{MAX_JOINT_STEP}) '
+                f'→ 위험 동작 차단, 이동 중단 (current={[round(c,3) for c in current]}, '
+                f'target={[round(t,3) for t in target_joints]})')
+            return False
 
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = traj

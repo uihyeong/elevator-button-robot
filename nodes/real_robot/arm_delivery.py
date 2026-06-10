@@ -110,7 +110,9 @@ BASKET_LOOK_JOINTS  = [-3.116, -0.387,   0.755,   1.164]
 BASKET_PLACE_JOINTS = [3.1032,  0.00767, 1.41126, -1.41433]
 BASKET_GRIP_JOINTS  = [3.122,   0.457,   0.831,   0.305]
 ROOM_SIGN_JOINTS    = [-3.141, -2.0203,  1.5002,  -0.044]
-ELEVATOR_HOME_JOINTS = [-3.1400, -1.9190,  1.2701,  0.7240]
+# joint1 을 +3.140(=+pi 쪽)으로. -3.140 과 물리적으로 같은 자세지만 HOME(+3.141)과
+# 같은 부호 쪽에 둬서 +pi/-pi wrap(한 바퀴 회전) 위험을 제거. (arm_recover 와 동일하게 유지)
+ELEVATOR_HOME_JOINTS = [3.1400, -1.9190,  1.2701,  0.7240]
 
 GRIPPER_OPEN     = [0.020]
 GRIPPER_CLOSE    = [0.006]
@@ -119,15 +121,18 @@ GRIPPER_ELEVATOR = [-0.007]
 MOVE_SPEED   = 0.4
 MIN_DURATION = 2.0
 STEP_DELAY   = 1.5  # 스텝 완료 후 다음 스텝 전 대기 (초)
+# 단일 관절 1회 이동 안전 상한(rad). 이보다 크면 위험 동작으로 보고 차단(한 바퀴 회전 방지).
+# 180°(π) 정상 이동은 허용하고 360°(2π) 회전만 막도록 4.5 로 통일(3 노드 공통).
+MAX_JOINT_STEP = 4.5
 
 # ─── 웨이포인트 ───────────────────────────────────────────────────────────────
 
-TABLE_HOVER  = ( 0.013,  0.298,  0.100)
-TABLE_GRIP   = ( 0.013,  0.298,  0.040)
+TABLE_HOVER  = ( 0.013,  0.350,  0.100)
+TABLE_GRIP   = ( 0.013,  0.350,  0.040)
 BASKET_HOVER = (-0.165,  0.009,  0.123)
-DEST_HOVER      = ( 0.013,  0.298,  0.100)
-DEST_HOVER_HIGH = ( 0.013,  0.298,  0.115)
-DEST_PLACE      = ( 0.013,  0.298,  0.040)
+DEST_HOVER      = ( 0.013,  0.350,  0.100)
+DEST_HOVER_HIGH = ( 0.013,  0.350,  0.115)
+DEST_PLACE      = ( 0.013,  0.350,  0.040)
 
 # ─── sentinels ───────────────────────────────────────────────────────────────
 
@@ -224,7 +229,13 @@ def _shortest_path(target, current):
 
 def make_trajectory(target_joints, current_joints):
     target_joints = [_shortest_path(t, c) for t, c in zip(target_joints, current_joints)]
+    # 관절 한계로 클램프 (_shortest_path 는 한계를 무시하므로 필수)
+    target_joints = [max(lo, min(hi, t))
+                     for t, (lo, hi) in zip(target_joints, JOINT_LIMITS)]
     max_disp = max(abs(t - c) for t, c in zip(target_joints, current_joints))
+    # 과대 이동(한 바퀴 회전 등)이면 None 반환 → 호출부에서 중단
+    if max_disp > MAX_JOINT_STEP:
+        return None, max_disp
     duration = max(max_disp / MOVE_SPEED, MIN_DURATION)
     traj = JointTrajectory()
     traj.joint_names = JOINT_NAMES
@@ -265,6 +276,8 @@ class ArmDeliveryNode(Node):
         self.create_subscription(JointState, '/joint_states',   self._cb_joints,        10)
         self.create_subscription(Bool,       '/start_pickup',   self._cb_start_pickup,  10)
         self.create_subscription(Bool,       '/aligned_ready',  self._cb_aligned_ready, 10)
+        # 박스 사전 적재용: 픽업/OCR 없이 IDLE 에서 바로 배달(DELIVER) 시퀀스 실행
+        self.create_subscription(Bool,       '/start_delivery', self._cb_start_delivery, 10)
 
         self._aligned_ready_event = threading.Event()
 
@@ -348,6 +361,30 @@ class ArmDeliveryNode(Node):
             self._aligned_ready_event.set()
         else:
             self.get_logger().warn(f'/aligned_ready 무시 (state={self.state})')
+
+    def _cb_start_delivery(self, msg: Bool):
+        """박스가 바구니에 사전 적재된 상태에서 픽업/OCR 없이 배달만 실행."""
+        if not msg.data:
+            return
+        if self.state != IDLE:
+            self.get_logger().warn(f'작업 중 ({self.state}). /start_delivery 무시.')
+            return
+        self.get_logger().info('/start_delivery 수신 → 배달(DELIVER) 시퀀스 바로 시작')
+        self.state = DELIVER
+        threading.Thread(target=self._run_delivery_only_flow, daemon=True).start()
+
+    def _run_delivery_only_flow(self):
+        ok = self._run_sequence(DELIVER_STEPS, '배달')
+        if not ok:
+            self.get_logger().error('배달 실패')
+            self.status_pub.publish(String(data='FAILED'))
+            self.state = IDLE
+            return
+        self.get_logger().info('✅ 배달 완료')
+        self.status_pub.publish(String(data='DELIVERY_DONE'))
+        self.delivery_pub.publish(Bool(data=True))
+        self.state = IDLE
+        self.get_logger().info('✅ /start_pickup 또는 /start_delivery 대기 중...')
 
     def _cb_image(self, msg: ImageMsg):
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
@@ -619,13 +656,26 @@ class ArmDeliveryNode(Node):
 
         with self.lock:
             js = self.current_joints
-        current = [0.0] * 4
-        if js:
-            for i, name in enumerate(JOINT_NAMES):
-                if name in js.name:
-                    current[i] = js.position[js.name.index(name)]
+        # 안전장치: /joint_states 가 없으면 현재값을 0 으로 가정하지 않는다.
+        # (0 으로 가정하면 +pi/-pi 경계에서 한 바퀴 회전하는 위험 동작이 발생)
+        if js is None:
+            self.get_logger().error('/joint_states 미수신 → 안전을 위해 이동 중단')
+            return False
+        current = [None] * 4
+        for i, name in enumerate(JOINT_NAMES):
+            if name in js.name:
+                current[i] = js.position[js.name.index(name)]
+        if any(c is None for c in current):
+            self.get_logger().error(f'joint_states 관절 누락 {current} → 이동 중단')
+            return False
 
         traj, duration = make_trajectory(joints, current)
+        if traj is None:
+            self.get_logger().error(
+                f'{label}: 단일 관절 이동량 {duration:.2f}rad 과대(>{MAX_JOINT_STEP}) '
+                f'→ 위험 동작 차단, 이동 중단 (current={[round(c,3) for c in current]}, '
+                f'target={[round(t,3) for t in joints]})')
+            return False
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = traj
         self.status_pub.publish(String(data='MOVING'))
