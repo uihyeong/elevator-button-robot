@@ -601,9 +601,7 @@ class ArmElevatorNode(Node):
         if not lit_confirmed:
             self.get_logger().warn(f'점등 타임아웃 ({LIT_TIMEOUT:.0f}초) → 강제 진행')
 
-        self.status_pub.publish(String(data='NUMBER_PRESSED'))
-        self.get_logger().info('NUMBER_PRESSED 발행. 소등 대기 중...')
-
+        self.get_logger().info('소등 대기 중... (엘리베이터 도착 확인)')
         TIMEOUT = 60.0
         deadline = time.time() + TIMEOUT
         last_log = time.time()
@@ -621,6 +619,9 @@ class ArmElevatorNode(Node):
             time.sleep(0.5)
         else:
             self.get_logger().warn(f'소등 타임아웃 ({TIMEOUT:.0f}초) → 강제 진행')
+
+        self.status_pub.publish(String(data='NUMBER_PRESSED'))
+        self.get_logger().info('NUMBER_PRESSED 발행 → Scout Mini 이동 시작')
 
         self._last_number_bbox = None
         self.state = DONE
