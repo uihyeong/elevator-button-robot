@@ -61,7 +61,7 @@ L3    = 0.124
 L4    = 0.126
 
 JOINT_LIMITS = [
-    (-math.pi, math.pi),
+    (-math.pi, math.pi + 0.65),  # +0.65 rad 여유: ±π 경계 왼쪽 버튼 지원
     (-2.0,     1.5),
     (-1.5,     1.4),
     (-1.7,     1.97),
@@ -102,9 +102,14 @@ DONE          = 'DONE'
 # ─── 해석적 IK ────────────────────────────────────────────────────────────────
 
 def solve_ik(X: float, Y: float, Z: float):
-    j1 = math.atan2(Y, X)
-    r  = math.sqrt(X**2 + Y**2)
+    j1_raw = math.atan2(Y, X)
 
+    # 홈(+π)에서 3사분면(X<0,Y<0) 버튼: j1_raw ≈ -π+ε → j1_raw+2π ≈ π+ε 로도 시도
+    j1_list = [j1_raw]
+    if j1_raw < -math.pi / 2:
+        j1_list.append(j1_raw + 2 * math.pi)
+
+    r  = math.sqrt(X**2 + Y**2)
     wr = r - L4
     wz = Z
     dr = wr
@@ -119,17 +124,18 @@ def solve_ik(X: float, Y: float, Z: float):
     c_psi = (D**2 - L2**2 - L3**2) / (2.0 * L2 * L3)
     c_psi = max(-1.0, min(1.0, c_psi))
 
-    for psi in (-math.acos(c_psi), math.acos(c_psi)):
-        s_psi  = math.sin(psi)
-        gamma  = math.atan2(L3 * s_psi, L2 + L3 * c_psi)
-        alpha1 = math.atan2(dz, dr) - gamma
-        j2     = ALPHA - alpha1
-        j3     = -psi - ALPHA
-        j4     = -(j2 + j3)
+    for j1 in j1_list:
+        for psi in (-math.acos(c_psi), math.acos(c_psi)):
+            s_psi  = math.sin(psi)
+            gamma  = math.atan2(L3 * s_psi, L2 + L3 * c_psi)
+            alpha1 = math.atan2(dz, dr) - gamma
+            j2     = ALPHA - alpha1
+            j3     = -psi - ALPHA
+            j4     = -(j2 + j3)
 
-        angles = [j1, j2, j3, j4]
-        if all(lo <= a <= hi for a, (lo, hi) in zip(angles, JOINT_LIMITS)):
-            return angles
+            angles = [j1, j2, j3, j4]
+            if all(lo <= a <= hi for a, (lo, hi) in zip(angles, JOINT_LIMITS)):
+                return angles
 
     return None
 
