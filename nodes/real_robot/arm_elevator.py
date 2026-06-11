@@ -541,17 +541,21 @@ class ArmElevatorNode(Node):
             return np.count_nonzero(mask) / (roi.shape[0] * roi.shape[1])
 
     def _check_button_lit(self) -> bool:
-        ratio = self._get_lit_ratio()
-        if ratio is None:
-            self.get_logger().warn('점등 확인 불가 (프레임/bbox 없음) → 성공으로 간주')
-            return True
-        if self.target_button == 'down_button':
-            threshold = LIT_BRIGHT_RATIO
-            self.get_logger().info(f'DOWN 점등: brightness={ratio:.3f} (기준 {threshold})')
-        else:
-            threshold = LIT_GREEN_RATIO
-            self.get_logger().info(f'UP 점등: green_ratio={ratio:.3f} (기준 {threshold})')
-        return ratio > threshold
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            ratio = self._get_lit_ratio()
+            if ratio is None:
+                time.sleep(0.2)
+                continue
+            if self.target_button == 'down_button':
+                threshold = LIT_BRIGHT_RATIO
+                self.get_logger().info(f'DOWN 점등: brightness={ratio:.3f} (기준 {threshold})')
+            else:
+                threshold = LIT_GREEN_RATIO
+                self.get_logger().info(f'UP 점등: green_ratio={ratio:.3f} (기준 {threshold})')
+            return ratio > threshold
+        self.get_logger().warn('점등 확인 불가 (5초 대기 후에도 bbox 없음) → 실패로 간주')
+        return False
 
     def _wait_for_button_unlit(self):
         TIMEOUT = 60.0
@@ -561,8 +565,8 @@ class ArmElevatorNode(Node):
         while time.time() < deadline:
             ratio = self._get_lit_ratio()
             if ratio is None:
-                self.get_logger().warn('소등 확인 불가 → 진행')
-                return
+                time.sleep(0.5)
+                continue
             if time.time() - last_log >= 5.0:
                 self.get_logger().info(f'소등 대기 중... green_ratio={ratio:.3f}')
                 last_log = time.time()
@@ -577,22 +581,24 @@ class ArmElevatorNode(Node):
     def _return_home_then_wait_number(self):
         ok = self._send_trajectory(HOME_JOINTS)
         if ok:
-            self.get_logger().info('홈 복귀 완료. 숫자 버튼 점등 대기 중...')
-        time.sleep(0.5)
+            self.get_logger().info('홈 복귀 완료. 자세 안정화 대기 중...')
+        time.sleep(1.0)
 
         LIT_TIMEOUT = 10.0
         deadline_lit = time.time() + LIT_TIMEOUT
+        lit_confirmed = False
         while time.time() < deadline_lit:
             ratio = self._get_lit_ratio(self._last_number_bbox)
             if ratio is None:
-                self.get_logger().warn('점등 확인 불가 → 강제 진행')
-                break
+                time.sleep(0.2)
+                continue
             self.get_logger().info(f'점등 대기 중... green_ratio={ratio:.3f} (기준 >{LIT_GREEN_RATIO})')
             if ratio > LIT_GREEN_RATIO:
                 self.get_logger().info(f'✅ 숫자 버튼 점등 확인! (green_ratio={ratio:.3f})')
+                lit_confirmed = True
                 break
             time.sleep(0.3)
-        else:
+        if not lit_confirmed:
             self.get_logger().warn(f'점등 타임아웃 ({LIT_TIMEOUT:.0f}초) → 강제 진행')
 
         self.status_pub.publish(String(data='NUMBER_PRESSED'))
@@ -604,8 +610,8 @@ class ArmElevatorNode(Node):
         while time.time() < deadline:
             ratio = self._get_lit_ratio(self._last_number_bbox)
             if ratio is None:
-                self.get_logger().warn('소등 확인 불가 → 진행')
-                break
+                time.sleep(0.5)
+                continue
             if time.time() - last_log >= 5.0:
                 self.get_logger().info(f'소등 대기 중... green_ratio={ratio:.3f}')
                 last_log = time.time()
@@ -655,11 +661,11 @@ class ArmElevatorNode(Node):
     def _return_home_then_wait(self):
         ok = self._send_trajectory(HOME_JOINTS)
         if ok:
-            self.get_logger().info('홈 복귀 완료. 버튼 점등 확인 중...')
+            self.get_logger().info('홈 복귀 완료. 자세 안정화 대기 중...')
         else:
             self.get_logger().error('홈 복귀 실패. 점등 확인 진행')
 
-        time.sleep(0.5)
+        time.sleep(1.0)
 
         if not self._check_button_lit():
             self.get_logger().warn('버튼 점등 미확인 → 재시도')
