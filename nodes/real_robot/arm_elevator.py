@@ -61,7 +61,7 @@ L3    = 0.124
 L4    = 0.126
 
 JOINT_LIMITS = [
-    (-math.pi, 3.35),
+    (-math.pi, math.pi),
     (-2.0,     1.5),
     (-1.5,     1.4),
     (-1.7,     1.97),
@@ -84,7 +84,7 @@ NUM_PRESS_CONF    = 0.7
 OCR_INTERVAL      = 5
 BUTTON_OFFSET_X   = 0.075
 MAX_FAIL          = 3
-LIT_GREEN_RATIO   = 0.10
+LIT_GREEN_RATIO   = 0.30
 LIT_BRIGHT_RATIO  = 0.60
 
 # ─── 상태 상수 ────────────────────────────────────────────────────────────────
@@ -571,14 +571,26 @@ class ArmElevatorNode(Node):
     def _return_home_then_wait_number(self):
         ok = self._send_trajectory(HOME_JOINTS)
         if ok:
-            self.get_logger().info('홈 복귀 완료. 숫자 버튼 점등 확인 중...')
+            self.get_logger().info('홈 복귀 완료. 숫자 버튼 점등 대기 중...')
         time.sleep(0.5)
 
-        ratio = self._get_lit_ratio(self._last_number_bbox)
-        if ratio is not None:
-            self.get_logger().info(f'숫자 버튼 점등: green_ratio={ratio:.3f} (기준 {LIT_GREEN_RATIO})')
+        LIT_TIMEOUT = 10.0
+        deadline_lit = time.time() + LIT_TIMEOUT
+        while time.time() < deadline_lit:
+            ratio = self._get_lit_ratio(self._last_number_bbox)
+            if ratio is None:
+                self.get_logger().warn('점등 확인 불가 → 강제 진행')
+                break
+            self.get_logger().info(f'점등 대기 중... green_ratio={ratio:.3f} (기준 >{LIT_GREEN_RATIO})')
+            if ratio > LIT_GREEN_RATIO:
+                self.get_logger().info(f'✅ 숫자 버튼 점등 확인! (green_ratio={ratio:.3f})')
+                break
+            time.sleep(0.3)
+        else:
+            self.get_logger().warn(f'점등 타임아웃 ({LIT_TIMEOUT:.0f}초) → 강제 진행')
+
         self.status_pub.publish(String(data='NUMBER_PRESSED'))
-        self.get_logger().info('✅ 숫자 버튼 점등 확인. 소등 대기 중...')
+        self.get_logger().info('NUMBER_PRESSED 발행. 소등 대기 중...')
 
         TIMEOUT = 60.0
         deadline = time.time() + TIMEOUT
