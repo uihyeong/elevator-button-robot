@@ -577,6 +577,8 @@ class ArmElevatorNode(Node):
                 return
             time.sleep(0.5)
         self.get_logger().warn(f'소등 타임아웃 ({TIMEOUT:.0f}초) → 강제 진행')
+        self.status_pub.publish(String(data='ELEVATOR_ARRIVED'))
+        self._last_updown_bbox = None
 
     def _return_home_then_wait_number(self):
         ok = self._send_trajectory(HOME_JOINTS)
