@@ -39,7 +39,7 @@ except ImportError:
 
 _REPO_ROOT     = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 MODEL_PATH     = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_room.pt')
-ROOM_CONF      = 0.83
+ROOM_CONF      = 0.6
 OCR_INTERVAL   = 5
 
 JOINT_NAMES      = ['joint1', 'joint2', 'joint3', 'joint4']
