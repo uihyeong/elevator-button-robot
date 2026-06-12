@@ -478,8 +478,7 @@ class ArmDeliveryNode(Node):
             if self._latest_room_bbox is not None:
                 rx1, ry1, rx2, ry2 = self._latest_room_bbox
                 cv2.rectangle(vis, (rx1, ry1), (rx2, ry2), (0, 165, 255), 2)
-                label = f'Room: {self._latest_room_text}'
-                cv2.putText(vis, label, (rx1, max(ry1 - 8, 12)),
+                cv2.putText(vis, f'Room: {self._latest_room_text}', (rx1, max(ry1 - 8, 12)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
 
             self._write_frame(vis)
@@ -681,6 +680,8 @@ class ArmDeliveryNode(Node):
             if joints is ROOM_SIGN_JOINTS:
                 self._frame_count = 0
             self._ocr_active = (joints is ROOM_SIGN_JOINTS)
+            if not self._ocr_active:
+                self._latest_room_bbox = None
             time.sleep(STEP_DELAY)
 
             if gripper is not None:
@@ -707,6 +708,7 @@ class ArmDeliveryNode(Node):
 
         self._box_yolo_active = False
         self._ocr_active = False
+        self._latest_room_bbox = None
         self._current_step_en = f'{name} Done'
         self.get_logger().info(f'{name} 시퀀스 완료')
         return True

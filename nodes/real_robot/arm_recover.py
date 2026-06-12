@@ -406,6 +406,7 @@ class ArmRecoverNode(Node):
 
         self._handle_active = False
         self._ocr_active = False
+        self._latest_room_bbox = None
         self._current_step_en = f'{name} Done'
         self.get_logger().info(f'{name} 시퀀스 완료')
         return True

@@ -45,12 +45,12 @@ class ArucoServoing(Node):
         self.kd_x = 0.05
         self.prev_error_x = 0.0
         self.tol_z = 0.03
-        self.tol_x = 0.02
-        self.max_linear  = 0.45
-        self.max_angular = 0.45
+        self.tol_x = 0.03
+        self.max_linear  = 0.43
+        self.max_angular = 0.43
 
         # 블라인드 이동 속도
-        self.rotate_angular_speed = 0.45
+        self.rotate_angular_speed = 0.43
         self.blind_linear_speed   = 0.45
         self.rotate_duration = (np.pi / 2) / self.rotate_angular_speed
         self.ramp_duration = 0.2   # 출발 덜컥임 방지: 속도 0→최대까지 선형 증가 시간(초)
@@ -64,20 +64,20 @@ class ArucoServoing(Node):
         # type: 'pub_ready'   → Bool(True) 발행 후 즉시 다음 스텝 (topic)
         # type: 'pub_floor'   → 저장된 층수를 /target_floor로 발행 (arm_elevator 트리거)
         self.sequence = [
-            {'type': 'servo',       'marker_id': 0, 'target_z': 0.22, 'target_x': 0.0},
+            {'type': 'servo',       'marker_id': 0, 'target_z': 0.26, 'target_x': 0.0},
             {'type': 'pub_floor'},
             {'type': 'wait_status', 'value': 'ELEVATOR_ARRIVED'},
             {'type': 'rotate',      'direction': -1},    # 90도 우회전
-            {'type': 'forward',     'distance': 0.65},   # 60cm 전진
+            {'type': 'forward',     'distance': 0.63},   # 60cm 전진
             {'type': 'rotate',      'direction': +1},    # 90도 좌회전
-            {'type': 'forward',     'distance': 1.84},   # 1.8m 전진
+            {'type': 'forward',     'distance': 1.88},   # 1.8m 전진
             {'type': 'rotate',      'direction': -1},    # 90도 우회전
             {'type': 'servo',       'marker_id': 1, 'target_z': 0.26, 'target_x': 0.0},
             {'type': 'pub_ready',   'topic': '/elevator_ready'},
             {'type': 'wait_status', 'value': 'NUMBER_PRESSED'},
             {'type': 'backward',    'distance': 0.35},
             {'type': 'rotate',      'direction': -1},    # 90도 우회전
-            {'type': 'forward',     'distance': 2.9},
+            {'type': 'forward',     'distance': 3.6},
         ]
 
         self.step_index        = 0
