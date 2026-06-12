@@ -230,7 +230,9 @@ class RoomSignDetector(Node):
 
                 if self.frame_count % OCR_INTERVAL == 0:
                     h, w = frame.shape[:2]
-                    roi = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
+                    # bbox 위쪽 40%만 크롭 — 숫자는 상단, 영어는 하단
+                    y_cut = y1 + int((y2 - y1) * 0.4)
+                    roi = frame[max(0, y1):min(h, y_cut), max(0, x1):min(w, x2)]
                     result = self._run_ocr(roi)
                     if result:
                         self._latest_room_text = result
