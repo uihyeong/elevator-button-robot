@@ -21,6 +21,7 @@
   ros2 topic pub --once /start_recover std_msgs/Bool "{data: true}"
 """
 
+import datetime
 import math
 import os
 import re
@@ -190,6 +191,10 @@ class ArmRecoverNode(Node):
         self.fx, self.fy       = 1380.0, 1380.0
         self.cx, self.cy       = 960.0,  540.0
 
+        self._writer = None
+        _ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        self._record_path = os.path.expanduser(f'~/recordings/recover_{_ts}.mp4')
+
         if _CV_AVAILABLE:
             self.bridge = CvBridge()
             self.create_subscription(
@@ -313,6 +318,13 @@ class ArmRecoverNode(Node):
         digits = m.group()
         return digits if len(digits) >= 3 else None
 
+    def _write_frame(self, frame):
+        if self._writer is None:
+            h, w = frame.shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            self._writer = cv2.VideoWriter(self._record_path, fourcc, 20, (w, h))
+        self._writer.write(frame)
+
     def _display_loop(self):
         while rclpy.ok():
             with self._frame_lock:
@@ -339,6 +351,7 @@ class ArmRecoverNode(Node):
                 cv2.putText(vis, label,
                             (hx1, max(hy1 - 8, 12)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            self._write_frame(vis)
             cv2.imshow('Recover', vis)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -479,6 +492,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if node._writer is not None:
+            node._writer.release()
         if _CV_AVAILABLE:
             import cv2 as _cv2
             _cv2.destroyAllWindows()

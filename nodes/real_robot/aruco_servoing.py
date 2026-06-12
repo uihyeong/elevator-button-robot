@@ -78,7 +78,6 @@ class ArucoServoing(Node):
             {'type': 'backward',    'distance': 0.35},
             {'type': 'rotate',      'direction': -1},    # 90도 우회전
             {'type': 'forward',     'distance': 2.9},
-            {'type': 'pub_ready',   'topic': '/aligned_ready'},
         ]
 
         self.step_index        = 0
