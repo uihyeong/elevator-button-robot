@@ -23,6 +23,7 @@
 
 import math
 import os
+import re
 import threading
 import time
 
@@ -61,7 +62,7 @@ except ImportError:
 _REPO_ROOT        = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 ROOM_MODEL_PATH   = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_room.pt')
 HANDLE_MODEL_PATH = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_handle.pt')
-ROOM_CONF         = 0.83
+ROOM_CONF         = 0.6
 HANDLE_CONF       = 0.50
 OCR_INTERVAL      = 5
 
@@ -257,7 +258,9 @@ class ArmRecoverNode(Node):
             conf = float(box.conf)
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             h, w = frame.shape[:2]
-            roi = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
+            # bbox 위쪽 40%만 크롭 — 숫자는 상단, 영어는 하단
+            y_cut = y1 + int((y2 - y1) * 0.4)
+            roi = frame[max(0, y1):min(h, y_cut), max(0, x1):min(w, x2)]
             if roi.size == 0:
                 continue
             room_text = self._run_ocr(roi)
@@ -302,9 +305,13 @@ class ArmRecoverNode(Node):
     def _run_ocr(self, roi) -> str | None:
         if self._ocr is None:
             return None
-        results = self._ocr.readtext(roi, allowlist='0123456789BbGg', detail=0)
+        results = self._ocr.readtext(roi, allowlist='0123456789', detail=0)
         text = ''.join(results).strip()
-        return text if text else None
+        m = re.match(r'\d+', text)
+        if not m:
+            return None
+        digits = m.group()
+        return digits if len(digits) >= 3 else None
 
     def _display_loop(self):
         while rclpy.ok():
@@ -351,9 +358,7 @@ class ArmRecoverNode(Node):
 
     def _run_recover_flow(self):
         self.get_logger().info('회수 시퀀스 시작')
-        self._ocr_active = True
         ok = self._run_sequence(RECOVER_STEPS, '회수')
-        self._ocr_active = False
         if not ok:
             self.get_logger().error('회수 실패')
             self.status_pub.publish(String(data='FAILED'))
@@ -374,6 +379,10 @@ class ArmRecoverNode(Node):
             self.get_logger().info(f'[{i+1}/{len(steps)}] {label}')
             self._current_step_en = f'[{i+1}/{len(steps)}] {label}'
             self._handle_active = (label == '오른쪽 확인')
+            # OCR은 ROOM_SIGN_JOINTS 스텝에서만 활성
+            if joints is ROOM_SIGN_JOINTS:
+                self._frame_count = 0
+            self._ocr_active = (joints is ROOM_SIGN_JOINTS)
             time.sleep(STEP_DELAY)
 
             if joints is not None:
@@ -383,6 +392,7 @@ class ArmRecoverNode(Node):
                     return False
 
         self._handle_active = False
+        self._ocr_active = False
         self._current_step_en = f'{name} Done'
         self.get_logger().info(f'{name} 시퀀스 완료')
         return True
