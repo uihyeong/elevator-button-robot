@@ -15,6 +15,7 @@ Phase 2 (NUMBER):  YOLO-seg + EasyOCR → 숫자 버튼 감지 → 해석적 IK 
 
 import math
 import os
+import datetime
 import threading
 import time
 
@@ -200,6 +201,9 @@ class ArmElevatorNode(Node):
         self.latest_frame      = None
         self._last_updown_bbox = None
         self._last_number_bbox = None
+        self._writer           = None
+        _ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        self._record_path = os.path.expanduser(f'~/recordings/elevator_{_ts}.mp4')
 
         self._elevator_ready_event = threading.Event()
 
@@ -293,6 +297,15 @@ class ArmElevatorNode(Node):
         self.get_logger().info(f'/target_point 수신: ({X:.3f}, {Y:.3f}, {Z:.3f})')
         threading.Thread(target=self._press_button, args=(X, Y, Z, '수동'), daemon=True).start()
 
+    # ─── 녹화 ────────────────────────────────────────────────────────────────
+
+    def _write_frame(self, frame):
+        if self._writer is None:
+            h, w = frame.shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            self._writer = cv2.VideoWriter(self._record_path, fourcc, 20, (w, h))
+        self._writer.write(frame)
+
     # ─── 이미지 처리 ─────────────────────────────────────────────────────────
 
     def _cb_image(self, msg: Image):
@@ -334,6 +347,7 @@ class ArmElevatorNode(Node):
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(frame, ratio_label, (x1, y1 - 8),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+            self._write_frame(frame)
             cv2.imshow('ElevatorArm', frame)
             cv2.waitKey(1)
 
@@ -795,6 +809,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if node._writer is not None:
+            node._writer.release()
         cv2.destroyAllWindows()
         node.destroy_node()
         rclpy.shutdown()

@@ -1,3 +1,5 @@
+import datetime
+import os
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
@@ -88,8 +90,20 @@ class ArucoServoing(Node):
         self._mission_floor    = None
         self._pickup_done_recv = False
         self._x_stuck_start    = None
+        self._writer           = None
+        _ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        self._record_path = os.path.expanduser(f'~/recordings/servoing_{_ts}.mp4')
 
         self.get_logger().info('aruco_servoing 대기 중. /start_pickup + /mission_floor 수신 후 시작.')
+
+    # ── 녹화 ─────────────────────────────────────────────────────────
+
+    def _write_frame(self, frame):
+        if self._writer is None:
+            h, w = frame.shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            self._writer = cv2.VideoWriter(self._record_path, fourcc, 20, (w, h))
+        self._writer.write(frame)
 
     # ── 토픽 콜백 ────────────────────────────────────────────────────
 
@@ -346,6 +360,7 @@ class ArucoServoing(Node):
                     (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
 
         self.cmd_pub.publish(twist)
+        self._write_frame(frame)
         cv2.imshow("ArUco Servoing", frame)
         cv2.waitKey(1)
 
@@ -353,9 +368,16 @@ class ArucoServoing(Node):
 def main():
     rclpy.init()
     node = ArucoServoing()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if node._writer is not None:
+            node._writer.release()
+        cv2.destroyAllWindows()
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':

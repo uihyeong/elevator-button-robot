@@ -31,6 +31,7 @@
   ros2 topic pub --once /start_pickup std_msgs/Bool "{data: true}"
 """
 
+import datetime
 import math
 import os
 import re
@@ -301,6 +302,9 @@ class ArmDeliveryNode(Node):
         self._grab_model      = None
         self._current_step_en = 'Waiting'
         self._box_yolo_active = False  # TABLE_LOOK_JOINTS 스텝에서만 True
+        self._writer          = None
+        _ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        self._record_path = os.path.expanduser(f'~/recordings/delivery_{_ts}.mp4')
 
         # 호수 인식용
         self._room_model    = None
@@ -411,6 +415,13 @@ class ArmDeliveryNode(Node):
 
     # ─── YOLO 시각화 루프 ────────────────────────────────────────────────────
 
+    def _write_frame(self, frame):
+        if self._writer is None:
+            h, w = frame.shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            self._writer = cv2.VideoWriter(self._record_path, fourcc, 20, (w, h))
+        self._writer.write(frame)
+
     def _yolo_display_loop(self):
         while rclpy.ok():
             with self._frame_lock:
@@ -429,6 +440,7 @@ class ArmDeliveryNode(Node):
                     cv2.putText(vis, f'Room: {self._latest_room_text}',
                                 (rx1, max(ry1 - 8, 12)),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+                self._write_frame(vis)
                 cv2.imshow('Delivery YOLO', vis)
                 cv2.waitKey(1)
                 time.sleep(0.05)
@@ -470,6 +482,7 @@ class ArmDeliveryNode(Node):
                 cv2.putText(vis, label, (rx1, max(ry1 - 8, 12)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
 
+            self._write_frame(vis)
             cv2.imshow('Delivery YOLO', vis)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -821,6 +834,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if node._writer is not None:
+            node._writer.release()
         if _CV_AVAILABLE:
             import cv2 as _cv2
             _cv2.destroyAllWindows()
