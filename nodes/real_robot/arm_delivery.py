@@ -186,6 +186,7 @@ DELIVER_STEPS = [
     ('목적지에 내려놓기',                 None,                 DEST_PLACE,   None),
     ('그리퍼 열기 (박스 놓기)',           None,                 None,         GRIPPER_OPEN),
     ('위로 호버',                         None,                 DEST_HOVER_HIGH, None),
+    ('목적지 방향 확인 (joint1 오른쪽)',  TABLE_LOOK_JOINTS,    None,         None),
     ('엘리베이터 홈 복귀',               ELEVATOR_HOME_JOINTS, None,         None),
     ('그리퍼 닫기 (대기 자세)',           None,                 None,         GRIPPER_ELEVATOR),
 ]
@@ -378,9 +379,7 @@ class ArmDeliveryNode(Node):
         threading.Thread(target=self._run_delivery_only_flow, daemon=True).start()
 
     def _run_delivery_only_flow(self):
-        self._ocr_active = True
         ok = self._run_sequence(DELIVER_STEPS, '배달')
-        self._ocr_active = False
         if not ok:
             self.get_logger().error('배달 실패')
             self.status_pub.publish(String(data='FAILED'))
@@ -625,26 +624,16 @@ class ArmDeliveryNode(Node):
         self.status_pub.publish(String(data='PICKUP_DONE'))
         self.pickup_pub.publish(Bool(data=True))
 
-        # 2. 호수 번호판 인식
-        self.state = ROOM_SIGN
-        self.get_logger().info('호수 번호판 인식 시작')
-
-        self._frame_count = 0
-        self._ocr_active  = True
-
-        # 3. /aligned_ready 대기 (OCR은 콜백에서 계속 실행)
+        # 2. /aligned_ready 대기
         self.state = WAITING_ALIGN
-        self.get_logger().info('OCR 실행 중. /aligned_ready 대기...')
+        self.get_logger().info('/aligned_ready 대기...')
         self._aligned_ready_event.clear()
         self._aligned_ready_event.wait()
-        self._ocr_active = False
 
-        # 4. 배달 시퀀스
+        # 3. 배달 시퀀스 (DELIVER_STEPS 첫 스텝 ROOM_SIGN_JOINTS에서 OCR 자동 활성)
         self.state = DELIVER
-        self._ocr_active = True
         self.get_logger().info('배달 시퀀스 시작')
         ok = self._run_sequence(DELIVER_STEPS, '배달')
-        self._ocr_active = False
         if not ok:
             self.get_logger().error('배달 실패')
             self.status_pub.publish(String(data='FAILED'))
@@ -668,6 +657,10 @@ class ArmDeliveryNode(Node):
             self._current_step_en = f'[{i+1}/{len(steps)}] {label}'
             # 박스 YOLO는 오른쪽으로 돌았을때(TABLE_LOOK_JOINTS)와 YOLO_WAIT 스텝에서만 활성
             self._box_yolo_active = (joints is TABLE_LOOK_JOINTS or isinstance(joints, _YoloWait))
+            # OCR은 ROOM_SIGN_JOINTS 스텝에서만 활성
+            if joints is ROOM_SIGN_JOINTS:
+                self._frame_count = 0
+            self._ocr_active = (joints is ROOM_SIGN_JOINTS)
             time.sleep(STEP_DELAY)
 
             if gripper is not None:
@@ -693,6 +686,7 @@ class ArmDeliveryNode(Node):
                         return False
 
         self._box_yolo_active = False
+        self._ocr_active = False
         self._current_step_en = f'{name} Done'
         self.get_logger().info(f'{name} 시퀀스 완료')
         return True
