@@ -33,6 +33,7 @@
 
 import math
 import os
+import re
 import threading
 import time
 
@@ -74,7 +75,7 @@ except ImportError:
 
 _REPO_ROOT       = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 ROOM_MODEL_PATH  = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_room.pt')
-ROOM_CONF        = 0.83
+ROOM_CONF        = 0.6
 OCR_INTERVAL     = 5
 
 YOLO_MODEL_PATH   = os.path.join(_REPO_ROOT, 'yolo', 'weights', 'best_box.pt')
@@ -590,7 +591,9 @@ class ArmDeliveryNode(Node):
             conf = float(box.conf)
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             h, w = frame.shape[:2]
-            roi = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
+            # bbox 위쪽 40%만 크롭 — 숫자는 상단, 영어는 하단
+            y_cut = y1 + int((y2 - y1) * 0.4)
+            roi = frame[max(0, y1):min(h, y_cut), max(0, x1):min(w, x2)]
             if roi.size == 0:
                 continue
 
@@ -604,9 +607,13 @@ class ArmDeliveryNode(Node):
     def _run_ocr(self, roi) -> str | None:
         if self._ocr is None:
             return None
-        results = self._ocr.readtext(roi, allowlist='0123456789BbGg', detail=0)
+        results = self._ocr.readtext(roi, allowlist='0123456789', detail=0)
         text = ''.join(results).strip()
-        return text if text else None
+        m = re.match(r'\d+', text)
+        if not m:
+            return None
+        digits = m.group()
+        return digits if len(digits) >= 3 else None
 
     # ─── 전체 흐름 ────────────────────────────────────────────────────────────
 
