@@ -190,7 +190,7 @@ class RoomSignDetector(Node):
     def _run_ocr(self, roi) -> str | None:
         if self.ocr is None or roi.size == 0:
             return None
-        results = self.ocr.readtext(roi, allowlist='0123456789BbGg', detail=0)
+        results = self.ocr.readtext(roi, allowlist='0123456789', detail=0)
         text = ''.join(results).strip()
         return text if text else None
 
@@ -213,12 +213,11 @@ class RoomSignDetector(Node):
                 continue
 
             self.frame_count += 1
-            results   = self.model(frame, conf=ROOM_CONF, verbose=False)
-            annotated = results[0].plot()
+            results  = self.model(frame, conf=ROOM_CONF, verbose=False)
+            vis      = frame.copy()
 
             for box in results[0].boxes:
                 conf = float(box.conf)
-                name = self.model.names[int(box.cls)]
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
 
                 room_text = None
@@ -230,13 +229,12 @@ class RoomSignDetector(Node):
                         self.get_logger().info(f'호수 인식: {room_text} (conf={conf:.2f})')
                         self.room_num_pub.publish(String(data=room_text))
 
-                label = f'{name} {conf:.2f}'
+                cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 if room_text:
-                    label += f' → {room_text}호'
-                cv2.putText(annotated, label, (x1, max(y1 - 8, 12)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    cv2.putText(vis, room_text, (x1, max(y1 - 8, 12)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-            cv2.imshow('Room Sign Detector', annotated)
+            cv2.imshow('Room Sign Detector', vis)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
             time.sleep(0.05)
