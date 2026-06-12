@@ -8,6 +8,7 @@
 
 import math
 import os
+import re
 import threading
 import time
 
@@ -84,8 +85,9 @@ class RoomSignDetector(Node):
         self.bridge         = CvBridge()
         self.latest_frame   = None
         self.current_joints = None
-        self.frame_count    = 0
-        self._lock          = threading.Lock()
+        self.frame_count      = 0
+        self._latest_room_text = None  # 마지막 인식 결과 캐시
+        self._lock            = threading.Lock()
 
         if _YOLO_OK:
             self.model = YOLO(MODEL_PATH)
@@ -192,7 +194,13 @@ class RoomSignDetector(Node):
             return None
         results = self.ocr.readtext(roi, allowlist='0123456789', detail=0)
         text = ''.join(results).strip()
-        return text if text else None
+        # 앞에서 연속으로 이어지는 숫자만 추출 (ex. "531xx9" → "531")
+        m = re.match(r'\d+', text)
+        if not m:
+            return None
+        digits = m.group()
+        # 3자리 미만이면 노이즈로 판단
+        return digits if len(digits) >= 3 else None
 
     # ─── 메인 루프 ────────────────────────────────────────────────────────────
 
@@ -220,18 +228,18 @@ class RoomSignDetector(Node):
                 conf = float(box.conf)
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-                room_text = None
                 if self.frame_count % OCR_INTERVAL == 0:
                     h, w = frame.shape[:2]
                     roi = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
-                    room_text = self._run_ocr(roi)
-                    if room_text:
-                        self.get_logger().info(f'호수 인식: {room_text} (conf={conf:.2f})')
-                        self.room_num_pub.publish(String(data=room_text))
+                    result = self._run_ocr(roi)
+                    if result:
+                        self._latest_room_text = result
+                        self.get_logger().info(f'호수 인식: {result} (conf={conf:.2f})')
+                        self.room_num_pub.publish(String(data=result))
 
                 cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                if room_text:
-                    cv2.putText(vis, room_text, (x1, max(y1 - 8, 12)),
+                if self._latest_room_text:
+                    cv2.putText(vis, self._latest_room_text, (x1, max(y1 - 8, 12)),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
             cv2.imshow('Room Sign Detector', vis)
