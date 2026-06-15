@@ -306,6 +306,8 @@ class ArmRecoverNode(Node):
         Y = (cy_px - self.cy) / self.fy * d
         Z = d
         self._latest_handle_xyz = (X, Y, Z)
+        self.get_logger().info(
+            f'handle_hole xyz=({X:.3f}, {Y:.3f}, {Z:.3f}) m (conf={best_conf:.2f})')
 
     def _run_ocr(self, roi) -> str | None:
         if self._ocr is None:
@@ -344,10 +346,10 @@ class ArmRecoverNode(Node):
             if self._latest_handle_bbox is not None:
                 hx1, hy1, hx2, hy2 = self._latest_handle_bbox
                 cv2.rectangle(vis, (hx1, hy1), (hx2, hy2), (0, 255, 0), 2)
-                label = 'handle'
+                label = 'handle_hole'
                 if self._latest_handle_xyz is not None:
                     X, Y, Z = self._latest_handle_xyz
-                    label = f'handle ({X:.3f}, {Y:.3f}, {Z:.3f})'
+                    label = f'handle_hole ({X:.3f}, {Y:.3f}, {Z:.3f})'
                 cv2.putText(vis, label,
                             (hx1, max(hy1 - 8, 12)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
@@ -396,6 +398,13 @@ class ArmRecoverNode(Node):
             if joints is ROOM_SIGN_JOINTS:
                 self._frame_count = 0
             self._ocr_active = (joints is ROOM_SIGN_JOINTS)
+            # 검출이 꺼진 스텝에서는 이전 bbox가 화면에 남지 않도록 클리어
+            if not self._handle_active:
+                self._latest_handle_bbox = None
+                self._latest_handle_xyz  = None
+            if not self._ocr_active:
+                self._latest_room_bbox  = None
+                self._latest_room_text  = None
             time.sleep(STEP_DELAY)
 
             if joints is not None:
