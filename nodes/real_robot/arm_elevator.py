@@ -199,6 +199,7 @@ class ArmElevatorNode(Node):
         self._fail_updown = 0
 
         self.latest_frame      = None
+        self._frame_lock       = threading.Lock()
         self._last_updown_bbox = None
         self._last_number_bbox = None
         self._writer           = None
@@ -251,6 +252,9 @@ class ArmElevatorNode(Node):
         if self.updown_model is not None or self.num_model is not None:
             self.create_subscription(Image, '/camera/camera/color/image_raw',
                                      self._cb_image, 10)
+            # 표시/녹화 + YOLO/OCR 추론은 별도 루프 스레드에서 수행한다.
+            # (카메라 콜백은 프레임 저장만 → executor 가 OCR 로 막히지 않아 끊김/정지 방지)
+            threading.Thread(target=self._loop, daemon=True).start()
 
         self.get_logger().info('arm_elevator 노드 시작. 2초 후 홈 이동...')
         self._home_timer = self.create_timer(2.0, self._move_to_home_once)
@@ -309,44 +313,57 @@ class ArmElevatorNode(Node):
     # ─── 이미지 처리 ─────────────────────────────────────────────────────────
 
     def _cb_image(self, msg: Image):
-        if self.moving:
-            return
-
+        # 콜백은 프레임 저장만 (가볍게) — 무거운 추론/표시는 _loop 스레드가 담당
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
-        self.latest_frame = frame.copy()
-        with self.lock:
-            depth = self.depth_image.copy() if self.depth_image is not None else None
+        with self._frame_lock:
+            self.latest_frame = frame
 
-        state = self.state
+    def _loop(self):
+        while rclpy.ok():
+            with self._frame_lock:
+                frame = self.latest_frame.copy() if self.latest_frame is not None else None
+            if frame is None:
+                time.sleep(0.02)
+                continue
+            with self.lock:
+                depth = self.depth_image.copy() if self.depth_image is not None else None
 
-        if state == UPDOWN_READY and self.updown_model is not None:
-            self._process_updown(frame, depth)
-        elif state == NUMBER_READY and self.num_model is not None:
-            self._process_number(frame, depth)
-        else:
-            label = f'State: {state} | Target: {self.target_floor}F'
-            cv2.putText(frame, label, (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
-            if state == WAIT and self._last_updown_bbox is not None:
-                x1, y1, x2, y2 = self._last_updown_bbox
-                ratio = self._get_lit_ratio()
-                if self.target_button == 'down_button':
-                    color = (255, 255, 255)
-                    ratio_label = f'brightness={ratio:.3f} (>{LIT_BRIGHT_RATIO})'
-                else:
+            state = self.state
+
+            # 팔 이동 중에는 무거운 YOLO/OCR 추론은 건너뛰고 화면 표시/녹화만 유지
+            # (이동 중에도 매 루프 최신 프레임을 녹화하므로 끊김/정지화면 없음)
+            if self.moving:
+                cv2.putText(frame, f'MOVING | State: {state}', (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
+            elif state == UPDOWN_READY and self.updown_model is not None:
+                self._process_updown(frame, depth)
+            elif state == NUMBER_READY and self.num_model is not None:
+                self._process_number(frame, depth)
+            else:
+                label = f'State: {state} | Target: {self.target_floor}F'
+                cv2.putText(frame, label, (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+                if state == WAIT and self._last_updown_bbox is not None:
+                    x1, y1, x2, y2 = self._last_updown_bbox
+                    ratio = self._get_lit_ratio()
+                    if self.target_button == 'down_button':
+                        color = (255, 255, 255)
+                        ratio_label = f'brightness={ratio:.3f} (>{LIT_BRIGHT_RATIO})' if ratio is not None else 'brightness=N/A'
+                    else:
+                        color = (0, 255, 0)
+                        ratio_label = f'green={ratio:.3f} (>{LIT_GREEN_RATIO})' if ratio is not None else 'green=N/A'
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(frame, ratio_label, (x1, y1 - 8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+                if state == NUMBER_WAIT and self._last_number_bbox is not None:
+                    x1, y1, x2, y2 = self._last_number_bbox
+                    ratio = self._get_lit_ratio(self._last_number_bbox)
                     color = (0, 255, 0)
-                    ratio_label = f'green={ratio:.3f} (>{LIT_GREEN_RATIO})'
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(frame, ratio_label, (x1, y1 - 8),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
-            if state == NUMBER_WAIT and self._last_number_bbox is not None:
-                x1, y1, x2, y2 = self._last_number_bbox
-                ratio = self._get_lit_ratio(self._last_number_bbox)
-                color = (0, 255, 0)
-                ratio_label = f'green={ratio:.3f} (>{LIT_GREEN_RATIO})' if ratio is not None else 'green=N/A'
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(frame, ratio_label, (x1, y1 - 8),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+                    ratio_label = f'green={ratio:.3f} (>{LIT_GREEN_RATIO})' if ratio is not None else 'green=N/A'
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(frame, ratio_label, (x1, y1 - 8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+
             self._write_frame(frame)
             cv2.imshow('ElevatorArm', frame)
             cv2.waitKey(1)
@@ -401,16 +418,17 @@ class ArmElevatorNode(Node):
                 self._last_updown_bbox = (x1, y1, x2, y2)
                 self.state = UPDOWN_PRESS
                 self.get_logger().info(f'{cls} 감지! IK 시작')
+                cv2.putText(frame, f'UPDOWN | Target: {self.target_button}',
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
                 threading.Thread(
                     target=self._press_button,
                     args=(X, Y, Z - 0.031, cls),
                     daemon=True,
                 ).start()
+                return
 
         cv2.putText(frame, f'UPDOWN | Target: {self.target_button}',
                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-        cv2.imshow('ElevatorArm', frame)
-        cv2.waitKey(1)
 
     # ─── Phase 2: 숫자 인식 ─────────────────────────────────────────────────
 
@@ -448,12 +466,13 @@ class ArmElevatorNode(Node):
 
                 if matched and conf > NUM_PRESS_CONF and depth is not None:
                     self.state = NUMBER_PRESS
+                    cv2.putText(frame, f'NUMBER | Target: {self.target_floor}F',
+                                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
                     self._trigger_number_press(depth, x1, y1, x2, y2)
+                    return
 
         cv2.putText(frame, f'NUMBER | Target: {self.target_floor}F',
                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-        cv2.imshow('ElevatorArm', frame)
-        cv2.waitKey(1)
 
     def _read_number(self, crop):
         if self.ocr is None:
