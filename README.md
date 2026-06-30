@@ -38,7 +38,7 @@
 ## ✨ 주요 기능
 
 - **🛗 엘리베이터 버튼 조작** — YOLOv8로 UP/DOWN·층수 버튼을 인식하고 해석적 IK로 누름. 버튼 점등(HSV)·소등을 감지해 엘리베이터 도착까지 자동 판단
-- **📦 픽업 & 배달** — 책상 위 박스를 바구니로 픽업 → 목적지 책상으로 배달 (14/15스텝, Joint 지령 + XYZ→IK 혼용)
+- **📦 픽업 & 배달** — 책상 위 박스를 바구니로 픽업 → 목적지 책상으로 배달 (14/17스텝, Joint 지령 + XYZ→IK 혼용)
 - **🔢 호수 인식** — YOLO + EasyOCR로 호실 번호판을 실시간 읽어 `/room_number` 발행 (지하 B1/B2 포함)
 - **🎯 ArUco 비주얼 서보잉** — 마커 기반으로 Scout Mini를 정밀 정렬·구동하고, 픽업→엘리베이터→배달 전 과정을 시퀀싱
 - **🧊 프레시백 회수** — 배달 후 보냉백을 다시 팔 고리에 거는 회수 모션
@@ -284,27 +284,50 @@ ros2 topic pub --once /aligned_ready  std_msgs/Bool "{data: true}"   # 목적지
 </p>
 
 <details>
-<summary><b>📋 픽업(14)/배달(15) 스텝 & 웨이포인트 상수</b></summary>
+<summary><b>📋 픽업(14)/배달(17) 스텝 & 웨이포인트 상수</b></summary>
 
-각 스텝은 **Joint 직접 지령**(절대 관절각)과 **XYZ→IK**(좌표 입력, IK가 관절각 자동 계산)를 혼용합니다. 위치가 바뀔 때: Joint 스텝은 재실측 필요, XYZ 스텝은 좌표값만 수정.
+각 스텝은 **Joint 직접 지령**(절대 관절각)과 **XYZ→IK**(좌표 입력, IK가 관절각 자동 계산)를 혼용합니다. 위치가 바뀔 때: Joint 스텝은 재실측 필요, XYZ 스텝은 좌표값만 수정. (`arm_delivery.py`의 `PICKUP_STEPS` / `DELIVER_STEPS` 기준)
 
-| # | 픽업 (14스텝) | 방식 | 배달 (15스텝) | 방식 |
-|---|------|------|------|------|
-| 1 | 홈 | Joint `HOME_JOINTS` | 홈 | Joint `HOME_JOINTS` |
-| 2 | 책상 방향 + YOLO 박스 확인 | Joint `TABLE_LOOK_JOINTS` | 바구니 확인 | Joint `BASKET_LOOK_JOINTS` |
-| 3 | YOLO 박스 인식 대기 | YOLO (1.5초) | YOLO 박스 인식 대기 | YOLO (1.5초) |
-| 4 | 그리퍼 열기 | Gripper | 그리퍼 열기 | Gripper |
-| 5 | 박스 위 호버 | XYZ `TABLE_HOVER` | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` |
-| 6 | 박스 잡기 위치 | XYZ `TABLE_GRIP` | 그리퍼 닫기 | Gripper `0.006` |
-| 7 | 그리퍼 닫기 | Gripper `0.006` | 바구니 확인 (잡기 후) | Joint `BASKET_LOOK_JOINTS` |
-| 8 | 바구니에 내려놓기 | Joint `BASKET_PLACE_JOINTS` | 박스 들어올리기 | XYZ `BASKET_HOVER` |
-| 9 | 홈 복귀 | Joint `HOME_JOINTS` | 목적지 방향 확인 | Joint `TABLE_LOOK_JOINTS` |
-| 10 | 바구니 확인 | Joint `BASKET_LOOK_JOINTS` | 목적지 호버 | XYZ `DEST_HOVER` |
-| 11 | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` | 목적지에 내려놓기 | XYZ `DEST_PLACE` |
-| 12 | 그리퍼 열기 | Gripper | 그리퍼 열기 | Gripper |
-| 13 | 엘리베이터 홈 복귀 | Joint `ELEVATOR_HOME_JOINTS` | 위로 호버 | XYZ `DEST_HOVER_HIGH` |
-| 14 | 그리퍼 닫기 (대기 자세) | Gripper `-0.007` | 엘리베이터 홈 복귀 | Joint `ELEVATOR_HOME_JOINTS` |
-| 15 | | | 그리퍼 닫기 (대기 자세) | Gripper `-0.007` |
+**픽업 (14스텝)**
+
+| # | 동작 | 방식 |
+|---|------|------|
+| 1 | 홈 | Joint `HOME_JOINTS` |
+| 2 | 책상 방향 + YOLO 박스 확인 | Joint `TABLE_LOOK_JOINTS` |
+| 3 | YOLO 박스 인식 대기 | YOLO (1.5초) |
+| 4 | 그리퍼 열기 (접근 전) | Gripper `OPEN` |
+| 5 | 박스 위 호버 | XYZ `TABLE_HOVER` |
+| 6 | 박스 잡기 위치 | XYZ `TABLE_GRIP` |
+| 7 | 그리퍼 닫기 (잡기) | Gripper `CLOSE` |
+| 8 | 바구니에 내려놓기 | Joint `BASKET_PLACE_JOINTS` |
+| 9 | 홈 복귀 | Joint `HOME_JOINTS` |
+| 10 | 바구니 확인 | Joint `BASKET_LOOK_JOINTS` |
+| 11 | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` |
+| 12 | 그리퍼 열기 (박스 놓기) | Gripper `OPEN` |
+| 13 | 엘리베이터 홈 복귀 | Joint `ELEVATOR_HOME_JOINTS` |
+| 14 | 그리퍼 닫기 (대기 자세) | Gripper `ELEVATOR` |
+
+**배달 (17스텝)**
+
+| # | 동작 | 방식 |
+|---|------|------|
+| 1 | 호수 확인 (OCR) | Joint `ROOM_SIGN_JOINTS` |
+| 2 | 홈 | Joint `HOME_JOINTS` |
+| 3 | 바구니 확인 (joint4 틸트) | Joint `BASKET_LOOK_JOINTS` |
+| 4 | YOLO 박스 인식 대기 | YOLO (1.5초) |
+| 5 | 그리퍼 열기 (접근 전) | Gripper `OPEN` |
+| 6 | 바구니 박스 잡기 | Joint `BASKET_GRIP_JOINTS` |
+| 7 | 그리퍼 닫기 (잡기) | Gripper `CLOSE` |
+| 8 | 바구니 확인 (잡기 후) | Joint `BASKET_LOOK_JOINTS` |
+| 9 | 박스 들어올리기 | XYZ `BASKET_HOVER` |
+| 10 | 목적지 방향 확인 | Joint `TABLE_LOOK_JOINTS` |
+| 11 | 목적지 책상 위 호버 | XYZ `DEST_HOVER` |
+| 12 | 목적지에 내려놓기 | XYZ `DEST_PLACE` |
+| 13 | 그리퍼 열기 (박스 놓기) | Gripper `OPEN` |
+| 14 | 위로 호버 | XYZ `DEST_HOVER_HIGH` |
+| 15 | 목적지 방향 확인 | Joint `TABLE_LOOK_JOINTS` |
+| 16 | 엘리베이터 홈 복귀 | Joint `ELEVATOR_HOME_JOINTS` |
+| 17 | 그리퍼 닫기 (대기 자세) | Gripper `ELEVATOR` |
 
 **Joint 직접 지령** — 절대 관절각 [rad], 위치 바뀌면 재실측 필요
 
@@ -315,18 +338,21 @@ ros2 topic pub --once /aligned_ready  std_msgs/Bool "{data: true}"   # 목적지
 | `BASKET_LOOK_JOINTS` | -3.116 | -0.387 | 0.755 | 1.164 | 바구니 확인 (배달) |
 | `BASKET_PLACE_JOINTS` | 3.1032 | 0.00767 | 1.41126 | -1.41433 | 바구니에 내려놓기 (픽업) |
 | `BASKET_GRIP_JOINTS` | 3.122 | 0.457 | 0.831 | 0.305 | 바구니 박스 잡기 (배달) |
-| `ELEVATOR_HOME_JOINTS` | -3.1400 | -1.9190 | 1.2701 | 0.7240 | 엘리베이터 홈 (픽업 완료 후) |
+| `ROOM_SIGN_JOINTS` | 1.571 | -2.0203 | 1.5002 | -0.044 | 호수 번호판 인식 (배달 1번 스텝) |
+| `ELEVATOR_HOME_JOINTS` | 3.1400 | -1.9190 | 1.2701 | 0.7240 | 엘리베이터 홈 (대기 자세) |
+
+**그리퍼** — `OPEN=0.020` · `CLOSE=0.006`(살살 잡기) · `ELEVATOR=-0.007`(주행 대기)
 
 **XYZ → IK** — world 프레임 좌표 [m], 좌표값만 수정하면 IK가 관절각 자동 계산
 
 | 상수 | X | Y | Z | 용도 |
 |------|---|---|---|------|
-| `TABLE_HOVER` | 0.013 | 0.298 | 0.100 | 박스 위 호버 (픽업) |
-| `TABLE_GRIP` | 0.013 | 0.298 | 0.040 | 박스 잡기 위치 (픽업) |
+| `TABLE_HOVER` | 0.013 | 0.360 | 0.100 | 박스 위 호버 (픽업) |
+| `TABLE_GRIP` | 0.013 | 0.360 | 0.040 | 박스 잡기 위치 (픽업) |
 | `BASKET_HOVER` | -0.165 | 0.009 | 0.123 | 박스 들어올리기 (배달) |
-| `DEST_HOVER` | 0.013 | 0.298 | 0.100 | 목적지 호버 (배달) |
-| `DEST_HOVER_HIGH` | 0.013 | 0.298 | 0.115 | 위로 호버 +1.5cm (배달) |
-| `DEST_PLACE` | 0.013 | 0.298 | 0.040 | 목적지에 내려놓기 (배달) |
+| `DEST_HOVER` | 0.013 | 0.360 | 0.100 | 목적지 호버 (배달) |
+| `DEST_HOVER_HIGH` | 0.013 | 0.360 | 0.115 | 위로 호버 +1.5cm (배달) |
+| `DEST_PLACE` | 0.013 | 0.360 | 0.040 | 목적지에 내려놓기 (배달) |
 
 </details>
 
@@ -478,12 +504,20 @@ elevator-button-robot/
 
 ## 📐 부록 — 관절 포지션 레퍼런스
 
+엘리베이터 노드(`arm_elevator.py`) 기준:
+
 | 상수 | joint1 | joint2 | joint3 | joint4 | 용도 |
 |------|--------|--------|--------|--------|------|
-| `HOME_JOINTS` | -3.141 | -0.9948 | 0.6981 | 0.2967 | 기본 홈 자세 |
-| `NUMBER_HOME_JOINTS` | -3.141 | -0.9948 | 0.6981 | 0.6780 | 소등 후 숫자 패널 대기 |
-| `ROOM_SIGN_JOINTS` | -3.141 | -2.0203 | 1.5002 | -0.044 | 호수 번호판 인식 (라이다 미간섭) |
+| `HOME_JOINTS` | 3.1400 | -1.9190 | 1.2701 | 0.7240 | 기본 홈 자세 |
+| `NUMBER_HOME_JOINTS` | 3.1400 | -1.9190 | 1.2701 | 0.7240 | 소등 후 숫자 패널 대기 |
 
+호수 인식 노드(`detect_room_sign.py` · `arm_recover.py`) 기준:
+
+| 상수 | joint1 | joint2 | joint3 | joint4 | 용도 |
+|------|--------|--------|--------|--------|------|
+| `ROOM_SIGN_JOINTS` | 1.571 | -2.0203 | 1.5002 | -0.044 | 호수 번호판 인식 (라이다 미간섭) |
+
+> 단독 테스트 노드(`real_robot_unified.py`)는 홈 자세가 `-3.141, -0.9948, 0.6981, 0.2967` 로 다릅니다.
 > 픽업/배달용 웨이포인트 상수는 위 **픽업 / 배달** 섹션의 접이식 표 참고.
 
 ---
