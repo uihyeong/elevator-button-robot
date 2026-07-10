@@ -155,6 +155,8 @@ Play를 눌러도 관절이 힘을 못 받아 그냥 쓰러진다.
 
 ## 참고
 
+- 임포트에 사용한 URDF + 메시 원본은 [`urdf/`](urdf/) 폴더에 함께 올려두었다.
+  (메시 경로를 상대경로로 바꿔 폴더만으로 바로 임포트 가능)
 - 이동 로봇(Scout Mini) 임포트는 **Velocity drive + Moveable Base**로 옵션이 다르다.
   자세한 내용은 `CLAUDE.md`의 "Scout Mini USD 설정" 및 RL 트러블슈팅 참고.
 - Isaac Lab(강화학습)에서 쓸 USD는 ArticulationRootAPI가 **정확히 1개**여야 한다.
