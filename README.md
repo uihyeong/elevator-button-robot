@@ -8,22 +8,22 @@
 <p align="center">
   <img src="https://img.shields.io/badge/ROS2-Humble-22314E?logo=ros&logoColor=white"/>
   <img src="https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white"/>
-  <img src="https://img.shields.io/badge/YOLOv8-mAP50%2098.7%25-00BFFF?logo=yolo&logoColor=white"/>
+  <img src="https://img.shields.io/badge/YOLOv8-UP%2FDOWN%20mAP50%2098.7%25-00BFFF?logo=yolo&logoColor=white"/>
   <img src="https://img.shields.io/badge/Isaac%20Sim-5.1.0-76B900?logo=nvidia&logoColor=white"/>
   <img src="https://img.shields.io/badge/License-MIT-green"/>
 </p>
 
 <p align="center">
-  <img src="media/demo1.gif" width="44%"/>
-  <img src="media/demo_delivery.gif" width="44%"/>
+  <img src="media/demo_updown_v2.gif" width="44%"/>
+  <img src="media/demo_delivery_v2.gif" width="44%"/>
 </p>
-<p align="center"><em>좌: 엘리베이터 버튼 누르기 &nbsp;|&nbsp; 우: 바구니 → 목적지 배달</em></p>
+<p align="center"><em>좌: 엘리베이터 UP 버튼 인식 → 누름 → 점등 확인 &nbsp;|&nbsp; 우: 바구니에서 박스를 꺼내 목적지로 배달</em></p>
 
 ---
 
 ## 📋 프로젝트 개요
 
-캡스톤디자인 팀 프로젝트로, 택배기사가 앱에 층수를 입력하면 자율주행 로봇이 스스로 엘리베이터를 타고 배달까지 수행합니다. 본 저장소는 그중 **로봇팔 제어 파트**를 담당합니다.
+캡스톤디자인 팀 프로젝트 **"APS (Automated Parcel System)"** — 택배기사가 아파트 입구에 물건을 두면, 자율주행 로봇이 스스로 엘리베이터를 타고 각 세대까지 배달·회수까지 수행합니다. 본 저장소는 그중 **로봇팔 제어 파트**를 담당합니다.
 
 | 파트 | 담당 | 내용 |
 |------|------|------|
@@ -33,9 +33,7 @@
 
 > **연동 방식**: 각 파트는 ROS2 토픽으로 느슨하게 결합되어 독립 실행됩니다. (아래 **토픽 인터페이스** 참고)
 
----
-
-## ✨ 주요 기능
+### ✨ 주요 기능
 
 - **🛗 엘리베이터 버튼 조작** — YOLOv8로 UP/DOWN·층수 버튼을 인식하고 해석적 IK로 누름. 버튼 점등(HSV)·소등을 감지해 엘리베이터 도착까지 자동 판단
 - **📦 픽업 & 배달** — 책상 위 박스를 바구니로 픽업 → 목적지 책상으로 배달 (14/17스텝, Joint 지령 + XYZ→IK 혼용)
@@ -46,6 +44,71 @@
 
 ---
 
+## 🙋 내 역할 (My Contribution)
+
+5인 팀 캡스톤 프로젝트에서 **로봇팔 파트 전체를 시뮬레이션 설계부터 실물 구현까지 단독 담당**했습니다. (자율주행 베이스·앱/서버는 팀원 담당, ROS2 토픽으로 연동)
+
+- **해석적 IK 직접 유도·구현** — MoveIt2 플래닝(수 초)이 실시간 버튼 조작에 부적합하다고 판단, 수식을 직접 유도해 수 ms 내 목표 좌표 도달
+- **인식 파이프라인 구성** — RealSense D435 뎁스 + YOLOv8/YOLO-seg + EasyOCR로 버튼·호수·박스를 인식하는 노드 설계·구현
+- **Isaac Sim 검증 → 실물 적용** — 동작·ROS2 파이프라인을 시뮬레이션에서 먼저 검증한 뒤 실제 OpenMANIPULATOR-X에 이식
+- **Sim-to-Real 캘리브레이션** — 뎁스 기반 좌표 오차를 실측으로 찾아내 보정 상수 도출 (아래 **트러블슈팅** 참고)
+- **접촉 감지 모델 학습** — FSR 센서 데이터를 수집해 SVM 충돌 분류기 학습 (5-fold CV F1 0.812)
+
+---
+
+## 🔄 시스템 아키텍처
+
+### 센서 → 인식 → 제어 파이프라인
+
+```mermaid
+flowchart LR
+    RS["RealSense D435<br/>RGB-D"] -->|RGB + Depth| YOLO["YOLOv8 / YOLO-seg<br/>버튼·호수·박스 인식"]
+    YOLO -->|호수판 bbox| OCR["EasyOCR<br/>호수 숫자 판독"]
+    YOLO -->|목표 좌표 X, Y, Z| IK["해석적 IK<br/>좌표 → 관절각 (수 ms)"]
+    IK -->|joint1..4 목표각| CTRL["ROS2 Humble<br/>Dynamixel 관절 제어"]
+    OCR -->|"/room_number"| SEQ["미션 시퀀서<br/>aruco_servoing.py"]
+    CTRL -->|"/robot_status"| SEQ
+```
+
+### 미션 시퀀스 (픽업 → 엘리베이터 → 배달 → 회수)
+
+```mermaid
+flowchart TD
+    APP["택배기사 앱<br/>층수 입력"] -->|"/target_floor"| SCOUT["Scout Mini<br/>자율주행"]
+    SCOUT -->|"책상 앞 정렬"| PICKUP["로봇팔: 픽업<br/>박스 → 바구니"]
+    PICKUP -->|"/robot_status PICKUP_DONE"| SCOUT
+    SCOUT -->|"버튼 앞 정지 · /elevator_ready"| ELEV["로봇팔: 엘리베이터<br/>UP/DOWN → 점등 확인 → 도착 대기 → 층수 버튼"]
+    ELEV -->|"/robot_status NUMBER_PRESSED"| SCOUT
+    SCOUT -->|"탑승 → 목표 층 이동 · /aligned_ready"| DELIVER["로봇팔: 배달<br/>호수 인식 → 바구니에서 픽업 → 내려놓기"]
+    DELIVER -->|"/robot_status DELIVERY_DONE"| RECOVER["로봇팔: 회수<br/>프레시백 재거치"]
+    RECOVER --> SCOUT2["Scout Mini 복귀"]
+```
+
+### 엘리베이터 버튼 상태 머신 (`real_robot_unified.py`)
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> UPDOWN_READY : /target_floor 수신
+    UPDOWN_READY --> UPDOWN_PRESS : YOLO 인식 성공
+    UPDOWN_PRESS --> WAIT : 홈 복귀 → HSV 점등 확인
+    UPDOWN_PRESS --> UPDOWN_READY : IK·이동 실패 또는 미점등 → 재시도
+    UPDOWN_PRESS --> IDLE : 연속 3회 실패 → NEED_REPOSITION 발행
+    WAIT --> NUMBER_READY : 소등 감지 = 도착 → /elevator_ready 수신
+    NUMBER_READY --> NUMBER_PRESS : 숫자 인식 성공
+    NUMBER_PRESS --> NUMBER_READY : 실패 → 무제한 재시도
+    NUMBER_PRESS --> DONE : 층수 버튼 누름 완료
+    DONE --> IDLE : 3초 후 홈 복귀
+```
+
+> UP/DOWN은 `MAX_FAIL=3`에서 Scout Mini에 재정렬을 요청하지만, 숫자 버튼은 이미 엘리베이터에 탑승해 정위치에 있으므로 제한 없이 재시도합니다.
+
+<p align="center">
+  <img src="media/sw_block_diagram.svg" width="90%"/>
+</p>
+
+---
+
 ## 🛠 기술 스택
 
 | 분야 | 기술 |
@@ -53,7 +116,7 @@
 | 로봇 플랫폼 | OpenMANIPULATOR-X (4-DOF) |
 | 자율주행 베이스 | Scout Mini |
 | 카메라 | Intel RealSense D435 (RGB-D) |
-| 버튼/호수/박스 인식 | YOLOv8 · YOLO-seg (mAP50 98.7%) + EasyOCR |
+| 버튼/호수/박스 인식 | YOLOv8 · YOLO-seg + EasyOCR (UP/DOWN 버튼 mAP50 98.7%) |
 | 정밀 정렬 | ArUco 마커 비주얼 서보잉 (`cv2.aruco`, DICT_4X4_50) |
 | 역기구학 | 해석적 IK (수식 직접 유도, MoveIt2 불필요) |
 | 접촉 감지 | SVM (RBF 커널, 5-fold CV F1 0.812) |
@@ -63,65 +126,45 @@
 
 ---
 
-## 🔄 시스템 아키텍처
-
-```
-택배기사 앱 (층수 입력)
-        │  /target_floor
-        ▼
-┌──────────────────────────── 미션 시퀀스 ────────────────────────────┐
-│                                                                      │
-│  [픽업]   로봇팔 ← 이 저장소                                          │
-│           책상 위 박스 집기 → Scout Mini 바구니에 내려놓기            │
-│                                          │  /robot_status (PICKUP_DONE)
-│           ▼                                                          │
-│  [엘리베이터]  Scout Mini가 버튼 앞으로 이동                          │
-│                                          │  /elevator_ready          │
-│           로봇팔: UP/DOWN 인식·누름 → 점등 확인 → 도착 대기           │
-│                  → 목표 층수 버튼 누름                                │
-│                                          │  /robot_status (NUMBER_PRESSED)
-│           ▼  Scout Mini 탑승 → 목표 층 이동                          │
-│  [배달]   로봇팔: 호수 인식 → /room_number 발행                      │
-│                                          │  /aligned_ready           │
-│           바구니에서 박스 집기 → 목적지에 내려놓기                    │
-│                                          │  /robot_status (DELIVERY_DONE)
-│           ▼                                                          │
-│  [회수]   로봇팔: 프레시백을 팔 고리에 다시 걺 → Scout Mini 복귀      │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-엘리베이터 버튼 상태 머신 (`real_robot_unified.py`):
-
-```
-IDLE → UPDOWN_READY → UPDOWN_PRESS → WAIT → NUMBER_READY → NUMBER_PRESS → DONE
-```
-
-<p align="center">
-  <img src="media/sw_block_diagram.svg" width="90%"/>
-</p>
-
----
-
 ## 🎬 데모
 
-| 엘리베이터 버튼 | 픽업 | 배달 |
-|:---:|:---:|:---:|
-| <img src="media/demo1.gif" width="240"/><br/><img src="media/demo2.gif" width="240"/> | <img src="media/demo_pickup.gif" width="240"/> | <img src="media/demo_delivery.gif" width="240"/> |
+실제 건물에서 촬영한 전체 미션입니다. 순서대로 이어집니다.
+
+<p align="center">
+  <img src="media/demo_pickup_v2.gif" width="31%"/>
+  <img src="media/demo_updown_v2.gif" width="31%"/>
+  <img src="media/demo_floor_v2.gif" width="31%"/>
+</p>
+<p align="center">
+  <em>① <b>픽업</b> — 대기함 박스를 집어 바구니로&nbsp;&nbsp;|&nbsp;&nbsp;
+  ② <b>UP 버튼</b> — 인식 → 누름 → 점등 확인&nbsp;&nbsp;|&nbsp;&nbsp;
+  ③ <b>층수 버튼</b> — 엘리베이터 내부 패널</em>
+</p>
+
+<p align="center">
+  <img src="media/demo_delivery_v2.gif" width="31%"/>
+  <img src="media/demo_recover_v2.gif" width="31%"/>
+</p>
+<p align="center">
+  <em>④ <b>배달</b> — 바구니에서 박스를 꺼내 목적지로&nbsp;&nbsp;|&nbsp;&nbsp;
+  ⑤ <b>프레시백 회수</b> — 보냉백 손잡이를 잡아 재거치</em>
+</p>
+
+> 좌상단 작은 화면은 로봇팔 카메라 시점입니다. ②에서 버튼이 초록으로 점등되는 순간, ⑤에서 손잡이를 검출하는 장면을 확인할 수 있습니다.
 
 <p align="center">
   <img src="media/sim_full.gif" width="44%"/>
   <img src="media/sim_robot.gif" width="44%"/>
 </p>
-<p align="center"><em>Isaac Sim 시뮬레이션</em></p>
+<p align="center"><em>Isaac Sim 시뮬레이션 — 실물 이식 전 동작·ROS2 파이프라인 검증</em></p>
 
 ---
 
-## 🧠 핵심 기술
+## 🧠 핵심 기술 포인트 (차별점)
 
-### 1. 해석적 IK (Analytical Inverse Kinematics)
+### 1. 해석적 IK (Analytical Inverse Kinematics) — 왜 MoveIt2 대신 직접 구현했는가
 
-MoveIt2 없이 수식을 직접 유도하여 관절각을 계산합니다. 좌표 → 관절각 변환이 즉시 이루어져 계획 시간이 없고, 두 해(elbow-up/down)를 모두 검토해 관절 한계를 통과하는 해를 선택합니다.
+엘리베이터 버튼 조작은 인식 → 좌표 계산 → 접근 → 접촉이 짧은 주기로 반복되는 실시간 태스크입니다. MoveIt2의 샘플링 기반 플래닝은 매 호출마다 충돌 검사·경로 탐색을 거쳐 수 초가 걸려, 버튼 하나 누르는 데도 지연이 누적되는 문제가 있었습니다. 4-DOF라는 제한된 자유도 덕분에 목표 자세(수평 접근)까지 포함한 닫힌 형태 해가 존재한다고 판단해, MoveIt2 없이 수식을 직접 유도했습니다. 좌표 입력 → 관절각 계산이 수 ms 내에 끝나 실시간 제어 루프에 바로 사용할 수 있고, elbow-up/elbow-down 두 해를 모두 계산해 관절 한계를 통과하는 해를 선택하는 방식으로 특이점 근처에서도 안정적으로 동작합니다.
 
 <details>
 <summary><b>📐 수식 유도 펼치기</b></summary>
@@ -164,7 +207,7 @@ elbow-up / elbow-down 두 해를 모두 계산한 뒤, 관절 한계를 통과�
 
 </details>
 
-### 2. YOLOv8 버튼 인식 — mAP50 **98.7%**
+### 2. YOLOv8 버튼 인식 — UP/DOWN mAP50 **98.7%**
 
 UP/DOWN 버튼은 YOLOv8, 층수 버튼은 YOLO-seg로 영역을 분할한 뒤 EasyOCR로 숫자를 읽습니다. 학습된 가중치가 레포에 포함되어 **추가 학습 없이 바로 실행** 가능합니다.
 
@@ -188,12 +231,32 @@ FSR406 센서로 수집한 실측 데이터(총 19,664 슬라이딩 윈도우)�
 
 - **특징 벡터 (160차원)**: 최근 10샘플 × (joint velocity 4 + effort_delta 4 + 프레임 간 diff 8)
 - **학습 결과**: 5-fold CV F1 **0.812 ± 0.006** (sklearn, StandardScaler 정규화)
-- **오인식 방지**: 버튼 누르는 중(`MOVING`)·홈 복귀 6초간 감지 차단, 연속 3윈도우 × prob ≥ 0.80 일 때만 접촉 확정
+- **오인식 방지**: 버튼 누르는 중(`MOVING`)·홈 복귀 6초간 감지 차단, 연속 2윈도우 × prob ≥ 0.70 일 때만 접촉 확정
 - 데이터 수집은 `fsr_effort_logger.py`, 학습된 모델은 `svm_collision_model.pkl` 로 포함
 
 ### 4. ArUco 비주얼 서보잉 + 미션 시퀀서
 
 `aruco_servoing.py`는 ArUco 마커(DICT_4X4_50)를 추종해 Scout Mini를 목표 거리(target_z ≈ 0.26 m)·정렬로 구동(`/cmd_vel`)하고, **픽업 → 엘리베이터 → 배달** 전 단계를 토픽으로 오케스트레이션합니다. 시연 영상은 `~/recordings/` 에 자동 저장됩니다.
+
+---
+
+## 🩹 트러블슈팅 — Sim-to-Real 간극
+
+**증상**: Isaac Sim에서 검증한 로직을 실물에 그대로 적용하자, RealSense 뎁스 값을 기준으로 계산한 목표 좌표로 이동했을 때 실제 버튼 위치와 미세하게 어긋나는 현상이 발생했습니다. 시뮬레이션은 뎁스 값이 이상적이지만, 실물 카메라는 정렬(align) 오차·마운트 위치 오차 등으로 계산된 Z 좌표가 실제보다 체계적으로 높게 나왔습니다.
+
+**진행 과정**:
+1. Isaac Sim에서는 문제없이 동작 확인 → 실물 이식 후 접촉 실패/오차 재현
+2. 카메라 해상도를 1920×1080으로 올리고 `aligned_depth_to_color` 토픽으로 전환하는 과정에서 좌표 오차가 더 뚜렷이 드러남 (`ba998ba` 커밋)
+3. 여러 번 접촉 시도를 반복하며 목표 Z와 실제 접촉 지점의 차이를 실측
+4. 오차가 일정한 방향(항상 더 높게 감지)으로 나타남을 확인 → **고정 보정 상수**로 처리 가능하다고 판단
+5. `arm_elevator.py` / `real_robot_unified.py`의 목표 Z 계산에 **`Z − 0.031 m`** 보정을 적용해 안정화
+
+```python
+# nodes/real_robot/arm_elevator.py, real_robot_unified.py
+args=(X, Y, Z - 0.031, cls)   # 카메라로 계산한 Z에서 0.031m 보정
+```
+
+> 설치 위치(카메라 마운트 각도·높이)가 바뀌면 오차 방향/크기도 달라질 수 있어 재실측이 필요합니다. 이 상수는 현재 카메라 장착 위치(`link5` 기준 TF)에 한정된 값입니다.
 
 ---
 
@@ -278,10 +341,7 @@ ros2 topic pub --once /aligned_ready  std_msgs/Bool "{data: true}"   # 목적지
 
 단독 테스트: `real_robot_delivery.py`(자동, 1.5초 간격) / `test_delivery_motion.py`(Enter로 스텝별)
 
-<p align="center">
-  <img src="media/demo_pickup.gif" width="44%"/>
-  <img src="media/demo_delivery.gif" width="44%"/>
-</p>
+> ▶ 동작 영상: [데모 ① 픽업 · ④ 배달](#-데모)
 
 <details>
 <summary><b>📋 픽업(14)/배달(17) 스텝 & 웨이포인트 상수</b></summary>
@@ -367,7 +427,9 @@ ros2 topic pub --once /elevator_ready std_msgs/Bool  "{data: true}" # 탑승 완
 
 단독 테스트: `real_robot_unified.py` (동일 토픽)
 
-> **버튼 Z 보정**: `Z − 0.031 m` — 카메라 TF z=0.062가 실제보다 높게 감지되는 오차 보정값. 설치 위치가 바뀌면 재실측 필요.
+> ▶ 동작 영상: [데모 ② UP 버튼 · ③ 층수 버튼](#-데모)
+
+> **버튼 Z 보정**: `Z − 0.031 m` — 카메라 TF z=0.062가 실제보다 높게 감지되는 오차 보정값. 설치 위치가 바뀌면 재실측 필요. (배경은 위 **트러블슈팅** 참고)
 
 ### 🔢 호수 인식 (`detect_room_sign.py`) · 🧊 프레시백 회수 (`arm_recover.py`)
 
@@ -379,6 +441,8 @@ python3 nodes/real_robot/detect_room_sign.py
 python3 nodes/real_robot/arm_recover.py
 ros2 topic pub --once /start_recover std_msgs/Bool "{data: true}"
 ```
+
+> ▶ 동작 영상: [데모 ⑤ 프레시백 회수](#-데모)
 
 ### 🎯 ArUco 서보잉 미션 (`aruco_servoing.py`)
 
@@ -416,6 +480,21 @@ ros2 launch open_manipulator_x_moveit_config moveit_core.launch.py
 python3 nodes/simulation/pid_joint_controller.py
 python3 nodes/simulation/isaac_sim_yolo_moveit.py
 ```
+
+---
+
+## 📊 결과 (Results)
+
+| 지표 | 값 | 근거 |
+|------|-----|------|
+| 배송 작업 시간 단축 | **82%↓** (기사 직접 배송 대비) | 실제 건물(지하 1층 → 5층) 실측 로그 · 캡스톤 발표자료 (레포 외부 기록) |
+| UP/DOWN 버튼 인식 mAP50 | **98.7%** | `yolo/results/` 학습 로그 (레포 포함) |
+| 접촉 감지 SVM F1 | **0.812 ± 0.006** (5-fold CV) | FSR 실측 데이터 19,664 윈도우 — 학습된 모델만 레포 포함 |
+| IK 연산 시간 | 수 ms 수준 (MoveIt2 대비 수 초 → 대폭 단축) | 해석적 IK — 플래닝 없이 닫힌 형태 해 계산 |
+
+> ⚠️ **재현 범위**: 레포 안에서 직접 확인 가능한 지표는 **mAP50**(`yolo/results/`)뿐입니다.
+> 작업 시간 82% 단축은 실측 시간 기록·시연 로그·캡스톤 보고서를 근거로 하며 원본 데이터는 레포에 없습니다.
+> SVM F1도 학습된 모델(`svm_collision_model.pkl`)만 포함되어 있고, FSR 원본 로그와 학습 스크립트는 포함되어 있지 않습니다.
 
 ---
 
@@ -491,8 +570,8 @@ elevator-button-robot/
 | 값 | 발행 노드 | 의미 |
 |---|---|---|
 | `MOVING` | 전체 | 관절 이동 중 |
-| `UPDOWN_PRESSED` | elevator | UP/DOWN 버튼 누름 완료 |
-| `BUTTON_PRESSED` | elevator(단독) | UP/DOWN 버튼 점등 확인 |
+| `UPDOWN_PRESSED` | elevator | UP/DOWN 버튼 **점등 확인** 완료 (누르기 직후가 아님) |
+| `BUTTON_PRESSED` | elevator(단독) | 층수 버튼 누름 완료 — `arm_elevator.py`의 `NUMBER_PRESSED`에 해당 |
 | `ELEVATOR_ARRIVED` | elevator | 버튼 소등 감지 (엘리베이터 도착) |
 | `NUMBER_PRESSED` | elevator | 층수 버튼 누름 완료 |
 | `NEED_REPOSITION` | elevator | UP/DOWN 연속 3회 실패 → Scout 재정렬 요청 |
